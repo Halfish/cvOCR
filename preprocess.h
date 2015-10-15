@@ -21,18 +21,23 @@ public:
 	void init();
 
 private:
-	void findRotatedRects();
+	cv::Mat morphologyProcess(const cv::Mat &);
+	cv::Mat morphologyProcess2(const cv::Mat &);
+	cv::Mat getROI(cv::Mat, cv::RotatedRect); 
+	vector<cv::RotatedRect> findRotatedRects(cv::Mat, int);
+	void rotatedRectsFilter(vector<cv::RotatedRect> &);
+	void reFindRotatedRects();
 	void extractTextLines();
 	void calcMeanImageHeight();
 	void generateCleanImage();
-
-	cv::Mat morphologyProcess(const cv::Mat &);
-	void rotatedRectsFilter(vector<cv::RotatedRect> &);
 	void drawRectangles(cv::Mat, const vector<cv::RotatedRect> &);
 	void drawRectangles(cv::Mat, const vector<cv::Rect> &);
+	void translateRotatedRect(vector<cv::RotatedRect> &, cv::RotatedRect); 
 
 private:
 	static const int MAX_AREA = 2000;
+	static const int MODE_SHORT = 1;
+	static const int MODE_LONG = 2;
 
 	vector<cv::RotatedRect> mRotatedRects;	
 	vector<cv::Mat> mTextLines;
@@ -54,10 +59,12 @@ PreImageProcessor::PreImageProcessor(cv::Mat gray) {
  * 全部预处理步骤
  */
 void PreImageProcessor::init() {
-	findRotatedRects();
-	extractTextLines();
+	mRotatedRects = findRotatedRects(mGrayImage, MODE_LONG);
 	calcMeanImageHeight();
+	reFindRotatedRects();
+	extractTextLines();
 	generateCleanImage();
+	drawRectangles(mGrayImage, mRotatedRects);
 }
 
 
@@ -92,21 +99,48 @@ void PreImageProcessor::rotatedRectsFilter(vector<cv::RotatedRect> &origin) {
  * input cv::Mat mGrayImage 原始灰度图
  * output cv::Mat closing 形态学处理后，便于查找轮廓的图片 
  */
-cv::Mat PreImageProcessor::morphologyProcess(const cv::Mat &mGrayImage) {
+cv::Mat PreImageProcessor::morphologyProcess(const cv::Mat &gray) {
 	cv::Mat sobel, blur, binary, dilation, erosion, closing;
 	cv::Mat element1, element2, kernel;
 
 	element1 = getStructuringElement(cv::MORPH_RECT, cv::Size(20, 1));
 	element2 = getStructuringElement(cv::MORPH_RECT, cv::Size(28, 3));
-	kernel = getStructuringElement(cv::MORPH_RECT, cv::Size(10, 1));
+	kernel = getStructuringElement(cv::MORPH_RECT, cv::Size(9, 1));
 
-	cv::Sobel(mGrayImage, sobel, CV_8U, 1, 0, 1, 1, 0);
+	cv::Sobel(gray, sobel, CV_8U, 1, 0, 1, 1, 0);
 	cv::GaussianBlur(sobel, blur, cv::Size(5, 5), 0, 0);
 	cv::threshold(blur, binary, 0, 255, CV_THRESH_OTSU+CV_THRESH_BINARY);
 
 	cv::dilate(binary, dilation, element2, cv::Point(-1, -1), 1);
 	cv::erode(dilation, erosion, element1, cv::Point(-1, -1), 2);
 	cv::dilate(erosion, dilation, element2, cv::Point(-1, -1), 3);
+	cv::morphologyEx(dilation, closing, cv::MORPH_CLOSE, kernel);
+
+	return closing;
+}
+
+/*
+ * description: 形态学处理2，返回便于查找轮廓的图片	
+ *			腐蚀力度小一点，用于小图片二次切分
+ *
+ * input cv::Mat mGrayImage 原始灰度图
+ * output cv::Mat closing 形态学处理后，便于查找轮廓的图片 
+ */
+cv::Mat PreImageProcessor::morphologyProcess2(const cv::Mat &gray) {
+	cv::Mat sobel, blur, binary, dilation, erosion, closing;
+	cv::Mat element1, element2, kernel;
+
+	element1 = getStructuringElement(cv::MORPH_RECT, cv::Size(20, 1));
+	element2 = getStructuringElement(cv::MORPH_RECT, cv::Size(28, 3));
+	kernel = getStructuringElement(cv::MORPH_RECT, cv::Size(9, 1));
+
+	cv::Sobel(gray, sobel, CV_8U, 1, 0, 1, 1, 0);
+	cv::GaussianBlur(sobel, blur, cv::Size(5, 5), 0, 0);
+	cv::threshold(blur, binary, 0, 255, CV_THRESH_OTSU+CV_THRESH_BINARY);
+
+	cv::dilate(binary, dilation, element2, cv::Point(-1, -1), 1);
+	cv::erode(dilation, erosion, element1, cv::Point(-1, -1), 2);
+	cv::dilate(erosion, dilation, element2, cv::Point(-1, -1), 2);
 	cv::morphologyEx(dilation, closing, cv::MORPH_CLOSE, kernel);
 
 	return closing;
@@ -119,8 +153,17 @@ cv::Mat PreImageProcessor::morphologyProcess(const cv::Mat &mGrayImage) {
  * input:	cv::Mat mGrayImage 灰度图
  * output:	vector<cv::RotatedRect> mRotatedRects 倾斜的矩形 
  */
-void PreImageProcessor::findRotatedRects() {
-	cv::Mat closing = morphologyProcess(mGrayImage);
+vector<cv::RotatedRect> PreImageProcessor::findRotatedRects(cv::Mat img, int mode) {
+	cv::Mat closing;
+	switch (mode) {
+		case MODE_LONG:
+			closing = morphologyProcess(img);	break;
+		case MODE_SHORT:
+			closing = morphologyProcess2(img);	break;
+		default:	exit(1);
+	}
+
+	vector<cv::RotatedRect> rotatedRects;
 	vector<vector<cv::Point> > contours;
 	cv::findContours(closing, contours, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE);
 	
@@ -128,11 +171,83 @@ void PreImageProcessor::findRotatedRects() {
 	for(int i = 0; i < len; ++ i) {
 		cv::RotatedRect rRect = minAreaRect(cv::Mat(contours[i]));
 		if (cv::contourArea(contours[i]) > MAX_AREA) {
-			mRotatedRects.push_back(rRect);
+			rotatedRects.push_back(rRect);
+		}
+	}
+	rotatedRectsFilter(rotatedRects);
+
+	return rotatedRects;
+}
+
+
+/*
+ * description: 计算所有小图片中的平均高度
+ */
+void PreImageProcessor::calcMeanImageHeight() {
+	int sum = 0;
+
+	int len = mRotatedRects.size();
+	for (int i = 0; i < len; ++ i) {
+		sum += mRotatedRects[i].size.height;
+	}
+
+	mMeanImageHeight = sum / len;
+}
+
+
+void PreImageProcessor::translateRotatedRect(vector<cv::RotatedRect> &v, cv::RotatedRect rotate) {
+	cv::Rect rect = rotate.boundingRect();
+	int len = v.size();
+	for (int i = 0; i < len; ++ i) {
+		v[i].center.x += rect.x;
+		v[i].center.y += rect.y;
+	}
+}
+
+cv::Mat PreImageProcessor::getROI(cv::Mat gray, cv::RotatedRect rotate) {
+	cv::Mat src = gray.clone();
+	cv::Mat roi;
+	cv::Rect rect = rotate.boundingRect();
+	roi = src(rect);
+	cv::Mat mask(rect.height, rect.width, CV_8U, cv::Scalar(0));
+	cv::Point2f vertices[1][4];
+	rotate.points(vertices[0]);
+	cv::Point pt[4];
+	for (int i = 0; i < 4; ++ i) {
+		pt[i].x = vertices[0][i].x - rect.x;
+		pt[i].y = vertices[0][i].y - rect.y;
+	}
+	const cv::Point *ppt[1] = {pt};
+	int npt[] = {4};
+	cv::fillPoly(mask, ppt, npt, 1, cv::Scalar(255));
+	for (int i = 0; i < mask.rows; ++ i) {
+		for (int j = 0; j < mask.cols; ++ j) {
+			if (mask.at<uchar>(i, j) == 0) {
+				roi.at<uchar>(i, j) = 255;
+			}
 		}
 	}
 
-	rotatedRectsFilter(mRotatedRects);
+	cv::imwrite("roi.png", roi);
+	return roi;
+}
+
+void PreImageProcessor::reFindRotatedRects() {
+	vector<cv::RotatedRect> newRotatedRects;
+	int len = mRotatedRects.size();
+	for (int i = 0; i < len; ++ i) {
+		cv::RotatedRect rotate = mRotatedRects[i];
+		if (rotate.size.height > mMeanImageHeight * 3 / 2) {
+			cv::Mat roi = getROI(mGrayImage, rotate);
+			vector<cv::RotatedRect> v = findRotatedRects(roi, MODE_SHORT);
+			translateRotatedRect(v, rotate);
+			newRotatedRects.insert(newRotatedRects.end(), v.begin(), v.end());	
+		} else {
+			newRotatedRects.push_back(rotate);
+		}
+	}
+	rotatedRectsFilter(newRotatedRects);
+	newRotatedRects.swap(mRotatedRects);
 }
 
 
@@ -168,21 +283,6 @@ void PreImageProcessor::extractTextLines() {
 		sprintf(name, "./textLine/%d.png", i);
 		cv::imwrite(name, adaptive);
 	}
-}
-
-
-/*
- * description: 计算所有小图片中的平均高度
- */
-void PreImageProcessor::calcMeanImageHeight() {
-	int sum = 0;
-
-	int len = mTextLines.size();
-	for (int i = 0; i < len; ++ i) {
-		sum += mTextLines[i].rows;
-	}
-
-	mMeanImageHeight = sum / len;
 }
 
 
