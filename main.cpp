@@ -11,29 +11,19 @@
 #include <vector>
 using namespace std;
 
-pair<vector<cv::Rect>, cv::Mat> mypair;
-
 void preprocessImage(char *filename) {
-	cv::Mat img, gray, newImage;
-	img = cv::imread(filename);
+	cv::Mat img = cv::imread(filename);
+	cv::Mat gray;
 	cvtColor(img, gray, CV_BGR2GRAY);
 
-	vector<cv::RotatedRect> rotatedRects = findRotatedRects(gray);
-//	drawRectangle(img, rotatedRects);
-
-	vector<cv::Mat> textLines;
-	textLines = extractTextLine(gray, rotatedRects); 
-
-	mypair = generateCleanImage(gray, rotatedRects, textLines);
-	drawRectangle(mypair.second, mypair.first);
+	PreImageProcessor *pip = new PreImageProcessor(gray);
+	pip->init();
 }
 
 void runTesseract() {
-	vector<cv::Rect> rects = mypair.first;
-	cv::Mat newImage = mypair.second;
 	
 	const char *lang = "cv";
-	printResults(recognizeByLine(lang, newImage, rects));
+//	printResults(recognizeByLine(lang, newImage, rects));
 }
 
 int main(int argc, char** argv) {

@@ -13,59 +13,94 @@
 #include<iostream>
 using namespace std;
 
-const int MAX_AREA = 2000;
+class PreImageProcessor {
+
+public:
+	PreImageProcessor(cv::Mat mGrayImage);
+	~PreImageProcessor();
+	void init();
+
+private:
+	void findRotatedRects();
+	void extractTextLines();
+	void calcMeanImageHeight();
+	void generateCleanImage();
+
+	cv::Mat morphologyProcess(const cv::Mat &);
+	void rotatedRectsFilter(vector<cv::RotatedRect> &);
+	void drawRectangles(cv::Mat, const vector<cv::RotatedRect> &);
+	void drawRectangles(cv::Mat, const vector<cv::Rect> &);
+
+private:
+	static const int MAX_AREA = 2000;
+
+	vector<cv::RotatedRect> mRotatedRects;	
+	vector<cv::Mat> mTextLines;
+	int mMeanImageHeight;
+	cv::Mat mGrayImage;
+	cv::Mat mCleanImage;
+};
+
 
 /*
- * 1. 调整偏转角度（因为有些可能是负值，长宽需要对调）
- * 2. 增加矩形的边缘margin
- * 3. 筛选长宽比不正常的矩形
+ * description: 构造函数，初始图片必须是灰度图
  */
-vector<cv::RotatedRect> rotatedRectsFilter(const vector<cv::RotatedRect> rotatedRects) {
-	vector<cv::RotatedRect> ret;
-
-	int len = rotatedRects.size();
-	for (int i = 0; i < len; ++ i) {
-		cv::RotatedRect rRect = rotatedRects[i];
-		cv::Size size = rRect.size;
-		float angle = rRect.angle;
-
-		if(angle < -45) {
-			angle += 90;
-			swap(size.width, size.height);
-		}
-		//size.height += 15;
-
-		rRect.angle = angle;
-		rRect.size = size;
-
-		if(size.width > size.height) {
-			ret.push_back(rRect);			
-		}
-	}
-
-	return ret;
+PreImageProcessor::PreImageProcessor(cv::Mat gray) {
+	this->mGrayImage = gray;
 }
 
 
-/* description:
- * 从灰度图中利用数学形态学的方法查找到文字行，返回一个带倾斜角的矩形
- *
- * input:	cv::Mat 灰度图
- * output:	vector<cv::RotatedRect> 倾斜的矩形 
- *
- * RotatedRect {
- *	cv::Size size; 
- *	float angle; 
- *	cv::Point2f center;
- * }
+/*
+ * 全部预处理步骤
  */
-vector<cv::RotatedRect> findRotatedRects(cv::Mat gray) {
-	cv::Mat sobel, blur, binary, dilation, erosion, closing;
-	cv::Mat element1 = getStructuringElement(cv::MORPH_RECT, cv::Size(20, 1));
-	cv::Mat element2 = getStructuringElement(cv::MORPH_RECT, cv::Size(28, 3));
-	cv::Mat kernel = getStructuringElement(cv::MORPH_RECT, cv::Size(10, 1));
+void PreImageProcessor::init() {
+	findRotatedRects();
+	extractTextLines();
+	calcMeanImageHeight();
+	generateCleanImage();
+}
 
-	cv::Sobel(gray, sobel, CV_8U, 1, 0, 1, 1, 0);
+
+/*
+ * rotatedRects过滤器:
+ *		1. 调整偏转角度（因为有些可能是负值，长宽需要对调）
+ *		2. 增加矩形的边缘margin
+ *		3. 筛选长宽比不正常的矩形
+ */
+void PreImageProcessor::rotatedRectsFilter(vector<cv::RotatedRect> &origin) {
+	vector<cv::RotatedRect> v;
+
+	int len = origin.size();
+	for (int i = 0; i < len; ++ i) {
+		cv::RotatedRect rRect = origin[i];
+
+		if(rRect.angle < -45) {
+			rRect.angle += 90;
+			swap(rRect.size.width, rRect.size.height);
+		}
+		if(rRect.size.width > rRect.size.height) {
+			v.push_back(rRect);			
+		}
+	}
+	v.swap(origin);
+}
+
+
+/*
+ * description: 形态学处理，返回便于查找轮廓的图片
+ *
+ * input cv::Mat mGrayImage 原始灰度图
+ * output cv::Mat closing 形态学处理后，便于查找轮廓的图片 
+ */
+cv::Mat PreImageProcessor::morphologyProcess(const cv::Mat &mGrayImage) {
+	cv::Mat sobel, blur, binary, dilation, erosion, closing;
+	cv::Mat element1, element2, kernel;
+
+	element1 = getStructuringElement(cv::MORPH_RECT, cv::Size(20, 1));
+	element2 = getStructuringElement(cv::MORPH_RECT, cv::Size(28, 3));
+	kernel = getStructuringElement(cv::MORPH_RECT, cv::Size(10, 1));
+
+	cv::Sobel(mGrayImage, sobel, CV_8U, 1, 0, 1, 1, 0);
 	cv::GaussianBlur(sobel, blur, cv::Size(5, 5), 0, 0);
 	cv::threshold(blur, binary, 0, 255, CV_THRESH_OTSU+CV_THRESH_BINARY);
 
@@ -74,40 +109,50 @@ vector<cv::RotatedRect> findRotatedRects(cv::Mat gray) {
 	cv::dilate(erosion, dilation, element2, cv::Point(-1, -1), 3);
 	cv::morphologyEx(dilation, closing, cv::MORPH_CLOSE, kernel);
 
+	return closing;
+}
+
+
+/* description:	从灰度图中利用数学形态学的方法查找到文字行，
+ *			返回一个带倾斜角的矩形
+ *
+ * input:	cv::Mat mGrayImage 灰度图
+ * output:	vector<cv::RotatedRect> mRotatedRects 倾斜的矩形 
+ */
+void PreImageProcessor::findRotatedRects() {
+	cv::Mat closing = morphologyProcess(mGrayImage);
 	vector<vector<cv::Point> > contours;
-	cv::findContours(dilation, contours, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE);
+	cv::findContours(closing, contours, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE);
 	
-	vector<cv::RotatedRect> rotatedRects;
 	int len = contours.size();
 	for(int i = 0; i < len; ++ i) {
 		cv::RotatedRect rRect = minAreaRect(cv::Mat(contours[i]));
 		if (cv::contourArea(contours[i]) > MAX_AREA) {
-			rotatedRects.push_back(rRect);
+			mRotatedRects.push_back(rRect);
 		}
 	}
 
-	return rotatedRectsFilter(rotatedRects);
+	rotatedRectsFilter(mRotatedRects);
 }
 
 
 /*
  * description: 从倾斜的矩形中，提炼出文本行，并进行倾斜矫正和背景去噪
  *
- * input: cv::Mat gray 原始图片
- * input: const vector<cv::RotatedRect> rotatedRects 倾斜的矩形
- * output: vector<cv::Mat> textLines 文本行的小图片
+ * input: cv::Mat mGrayImage 原始图片
+ * input: vector<cv::RotatedRect> mRotatedRects 倾斜的矩形
+ * output: vector<cv::Mat> mTextLines; 文本行小图片
  */
-vector<cv::Mat> extractTextLine(cv::Mat gray, const vector<cv::RotatedRect> rotatedRects) {
-	vector<cv::Mat> textLines;
-	int len = rotatedRects.size();
+void PreImageProcessor::extractTextLines() {
+	int len = mRotatedRects.size();
 	for (int i = 0; i < len; ++ i) {
-		cv::RotatedRect rotate = rotatedRects[i];
+		cv::RotatedRect rotate = mRotatedRects[i];
 		cv::Rect rect = rotate.boundingRect();
 
 		cv::Point2f center(rect.width / 2, rect.height / 2);
 		float angle = rotate.angle;
 
-		cv::Mat roi = gray(rect);
+		cv::Mat roi = mGrayImage(rect);
 		cv::Mat matrix = cv::getRotationMatrix2D(center, angle, 1.0);
 		cv::Mat warp, crop, blur, adaptive;
 
@@ -117,49 +162,62 @@ vector<cv::Mat> extractTextLine(cv::Mat gray, const vector<cv::RotatedRect> rota
 		cv::adaptiveThreshold(blur, adaptive, 255, CV_ADAPTIVE_THRESH_GAUSSIAN_C,
 				CV_THRESH_BINARY, 11, 2);
 
-		textLines.push_back(adaptive);
+		mTextLines.push_back(adaptive);
+
 		char name[16];
 		sprintf(name, "./textLine/%d.png", i);
 		cv::imwrite(name, adaptive);
 	}
-
-	return textLines;
 }
+
+
+/*
+ * description: 计算所有小图片中的平均高度
+ */
+void PreImageProcessor::calcMeanImageHeight() {
+	int sum = 0;
+
+	int len = mTextLines.size();
+	for (int i = 0; i < len; ++ i) {
+		sum += mTextLines[i].rows;
+	}
+
+	mMeanImageHeight = sum / len;
+}
+
 
 /*
  * description: 把诸多小图片，根据大致位置信息，贴到一张背景是白色的大图片中 
  *
- * input: cv::Mat gray 原始图片，只用到了其大小信息
- * input: vector<cv::RotatedRect> rotatedRects 文本行位置信息
- * input: vector<cv::Mat> textLines 文本行
+ * input: cv::Mat mGrayImage 原始图片，只用到了其大小信息
+ * input: vector<cv::RotatedRect> mRotatedRects 文本行位置信息
+ * input: vector<cv::Mat> mTextLines 文本行
  *
  * output: vector<cv::Rect> rects 新图片文本行位置信息
  * output: cv::Mat newImage 新的图片
  */
-pair<vector<cv::Rect>, cv::Mat> generateCleanImage(cv::Mat gray, 
-		vector<cv::RotatedRect> rotatedRects, vector<cv::Mat> textLines) {
+void PreImageProcessor::generateCleanImage() {
 	vector<cv::Rect> rects;
-	cv::Mat newImage = 255 * cv::Mat::ones(gray.rows, gray.cols, CV_8UC1);
+	mCleanImage = 255 * cv::Mat::ones(mGrayImage.rows, mGrayImage.cols, CV_8UC1);
 
-	int len = rotatedRects.size();
+	int len = mRotatedRects.size();
 	for (int i = 0; i < len; ++ i) {
-		cv::RotatedRect rotate = rotatedRects[i];
+		cv::RotatedRect rotate = mRotatedRects[i];
 		cv::Rect rect(rotate.center.x - rotate.size.width / 2.0,
 				rotate.center.y - rotate.size.height / 2.0,
 				rotate.size.width, rotate.size.height);
 		rects.push_back(rect);
 
-		cv::Mat roi = newImage(rect);
-		textLines[i].copyTo(roi);
+		cv::Mat roi = mCleanImage(rect);
+		mTextLines[i].copyTo(roi);
 	}
-
-	return make_pair(rects, newImage);
 }
+
 
 /*
  * description: 在原图上画出找到的带倾斜角度的矩形框，并把图片存下来
  */
-void drawRectangle(cv::Mat src, vector<cv::RotatedRect> rotatedRects) {
+void PreImageProcessor::drawRectangles(cv::Mat src, const vector<cv::RotatedRect> &rotatedRects) {
 	cv::Mat img = src.clone();
 	int len = rotatedRects.size();
 	for (int i = 0; i < len; ++ i) {
@@ -173,10 +231,11 @@ void drawRectangle(cv::Mat src, vector<cv::RotatedRect> rotatedRects) {
 	cv::imwrite("region.png", img);
 }
 
+
 /*
  * description: 在原图上画出找到的矩形框，并把图片存下来
  */
-void drawRectangle(cv::Mat src, vector<cv::Rect> rects) {
+void PreImageProcessor::drawRectangles(cv::Mat src, const vector<cv::Rect> &rects) {
 	cv::Mat img = src.clone();
 	int len = rects.size();
 	for (int i = 0; i < len; ++ i) {
