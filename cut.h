@@ -5,6 +5,9 @@
 	> Created Time: 2015年10月09日 星期五 09时59分34秒
  ************************************************************************/
 
+#ifndef CUT_H
+#define CUT_H
+
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <iostream>
@@ -120,8 +123,7 @@ void findMeanHeightForRegion(Region &region) {
 		int height = region.patches[i].bottom - region.patches[i].top;
 		if (width <= MIN_PATCH_WIDTH && height <= MIN_PATCH_HEIGHT // punctuation
 				|| width <= MIN_PATCH_WIDTH && height >= 0.9 * region.img.rows	// symbol like "|"
-				|| width <= (region.img.rows * 3 / 5) )
-		{
+				|| width <= (region.img.rows * 3 / 5) ) {
 			continue;
 		}
 
@@ -168,12 +170,12 @@ void drawCutLine(const Region &region, int index, const char *dirname) {
 
 /*
  * description: 读取图片，用垂直投影法切割单字
- * input: const char *filename 文件名
+ * input: const cv::Mat gray 灰度图 
  * output: Region region 单张图片和图片分割的信息 
  */
-Region cut(const char *filename) {
+ Region cut(const cv::Mat gray) {
 	Region region;
-	region.img = cv::imread(filename, 0);
+	region.img = gray;
 
 	int whiteCount[region.img.cols] = {0};
 	for(int i = 0; i < region.img.cols; ++ i) {
@@ -201,9 +203,12 @@ Region cut(const char *filename) {
 	return region;
 }
 
+/*
+ * description 重切分Patch
+ *      根据minCutPixes的大小，判定要切分的连通度强弱
+ *      若切分后仍然存在宽度过长的情况，递归调用自己，并minCutPixes加一
+ */
 vector<Patch> doReCut(const Region &region, const Patch patch, const int minCutPixes) {
-	cout << "doReCut --> minCutPixes is " << minCutPixes << endl; 
-
 	cv::Mat img = region.img;
 	vector<Patch> v;
 
@@ -229,8 +234,9 @@ vector<Patch> doReCut(const Region &region, const Patch patch, const int minCutP
 		} 
 		if (whiteCount[i] >= minCutPixes && whiteCount[i+1] < minCutPixes) {
 			e = i+1;
-			if ((e - s) > region.meanHeight * 4 / 3) {
-				vector<Patch> tmp = doReCut(region, Patch(s + patch.start, e + patch.start, false), minCutPixes + 1);
+			if ((e - s) > region.meanHeight * 5 / 4) {
+				vector<Patch> tmp = doReCut(region, 
+						Patch(s + patch.start, e + patch.start, false), minCutPixes + 1);
 				v.insert(v.end(), tmp.begin(), tmp.end());
 			} else if ((e - s) > 2) {
 				v.push_back(Patch(s + patch.start, e + patch.start, false));
@@ -253,7 +259,7 @@ void reCut(Region &region) {
 	for (int i = 0; i < len; ++ i) {
 		Patch patch = region.patches[i];
 		if ((patch.end - patch.start) > region.meanHeight * 4 / 3) {
-			vector<Patch> v = doReCut(region, patch, 2);
+			vector<Patch> v = doReCut(region, patch, 1);
 			newPatches.insert(newPatches.end(), v.begin(), v.end());	
 		} else {
 			newPatches.push_back(patch);
@@ -290,7 +296,6 @@ bool validChinesePatch(Patch patch, int standard) {
 		*/
 		return true;
 	}
-
 	/*
 	cout << endl << "not valid" << endl;
 	cout << "patch width = " << width << " height = " << height << endl;
@@ -300,9 +305,9 @@ bool validChinesePatch(Patch patch, int standard) {
 	cout << "height / standard is " << ratio2 << endl;
 	cout << "not valid" << endl << endl;
 	*/
-
 	return false;
 }
+
 
 /*
  * description: 计算两个Patch的相似度，用于防止"2010"这种数字的合并问题
@@ -310,7 +315,6 @@ bool validChinesePatch(Patch patch, int standard) {
  * 1. 长宽相差不超过 MIN_SIMILIRIT
  * 2. 高度起始点不超过 MIN_MARGIN 个像素
  */
-
 bool isSimilar(Patch patch1, Patch patch2) {
 	float width1 = patch1.end - patch1.start;
 	float width2 = patch2.end - patch2.start;
@@ -334,14 +338,23 @@ bool isSimilar(Patch patch1, Patch patch2) {
 
 /*
  * description: 合并分离的中文 
+ * 考虑下面的情况：
+ *      1. 需要合并
+ *          a. 三个Patch连在一起，合并后符合汉字的形状 
+ *          b. 四个Patch连在一起，合并后符合汉字的形状 
+ *      2. 不需要合并
+ *          a. 连续的两个Patch距离过大，大于MIN_MARGIN 
+ *          b. 当前Patch已经符合汉字的形状了
+ *          c. 合并后的Patch不符合汉字的形状
+ *          d. 两个将要合并的Patch非常相似，且高度小于平均高度，
+ *              用来排除连续数字或者字母的情况
+ *          e. 下一个Patch不是标点（根据长宽，位置，距离再下一个Patch的距离） 
  */
 void merge(Region &region) {
 	vector<Patch> newPatches;
 	int len = region.patches.size();
 	int i;
 	for (i = 0; i < len - 1; ++ i) {
-//		cout << "---------------I am the line----------------" << endl;
-//		cout << " i = " << i << endl;
 		Patch patch1 = region.patches[i];
 		Patch patch2 = region.patches[i + 1];
 
@@ -349,25 +362,43 @@ void merge(Region &region) {
 				min(patch1.top, patch2.top), 
 				max(patch1.bottom, patch2.bottom), false);
 
+		if (i + 2 < len) {
+			Patch patch3 = region.patches[i + 2];
+			Patch bigPatch = Patch(patch1.start, patch3.end, 
+					min(tmpPatch.top, patch3.top),
+					max(tmpPatch.bottom, patch3.bottom), false);
+			if (validChinesePatch(bigPatch, region.meanHeight)) {
+				newPatches.push_back(bigPatch);
+				i = i + 2;
+				continue;
+			}
+		}
+		
+		if (i + 3 < len) {
+			Patch patch4 = region.patches[i + 3];
+			Patch bigPatch = Patch(patch1.start, patch4.end, 
+					min(tmpPatch.top, patch4.top),
+					max(tmpPatch.bottom, patch4.bottom), false);
+			if (validChinesePatch(bigPatch, region.meanHeight)) {
+				newPatches.push_back(bigPatch);
+				i = i + 3;
+				continue;
+			}
+		}
+
 		bool canMerge = true;
-		// conditon 1 && 2 && 3 && 4
-//		cout << "margin is " << patch2.start - patch1.end << endl;
 		if ((patch2.start - patch1.end) >= MIN_MARGIN){
-//			cout << "~^~ condition 1: >= MIN_MARGIN" << endl;
 			canMerge = false;
 		}
 		if (validChinesePatch(patch1, region.meanHeight)) {
-//			cout << "~^~ condition 2: simple word already valid!" << endl;
 			canMerge = false;
 		}
 		if (!validChinesePatch(tmpPatch, region.meanHeight)) {
-//			cout << "~^~ condition 3: merged word do not valid!" << endl;
 			canMerge = false;
 		} 
 		if (isSimilar(patch1, patch2) 
 				&& (patch1.bottom - patch1.top) < region.meanHeight * 9 / 10 
 				&& (patch2.bottom - patch2.top) < region.meanHeight * 9 / 10) {
-//			cout << "~^~ really similiar" << endl;
 			canMerge = false;
 		}
 		if ((patch2.end - patch2.start) < MIN_PATCH_WIDTH
@@ -375,16 +406,12 @@ void merge(Region &region) {
 				&& (patch2.top > region.img.rows / 2)
 				&& (i + 2) != len 
 				&& (region.patches[i+2].start - patch2.end) > region.meanHeight / 3) {
-//			cout << "~^~ next patch is punctuation" << endl;
 			canMerge = false;
 		}
 
 		if (!canMerge) {
-//			cout << endl << "did not merged!" << endl;
 			newPatches.push_back(patch1);
 		} else {
-			// merge here	
-//			cout << endl << "merged" << endl;
 			newPatches.push_back(tmpPatch);
 			++ i;
 		}
@@ -396,26 +423,4 @@ void merge(Region &region) {
 	newPatches.swap(region.patches);
 }
 
-void run() {
-	char filename[16];
-	const int imgCount = 59;
-	for (int i = 0; i < imgCount; ++ i) {
-		sprintf(filename, "./textLine/%d.png", i);
-		cout << endl << endl << filename << endl << endl;
-
-		Region region = cut(filename);
-		drawCutLine(region, i, "cut");
-
-		reCut(region);
-		drawCutLine(region, i, "recut");
-
-		merge(region);
-		drawCutLine(region, i, "merge");
-	}
-}
-
-int main(int argc, char** argv) {
-	run();	
-
-	return 0;
-}
+#endif

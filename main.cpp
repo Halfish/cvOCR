@@ -7,9 +7,12 @@
 
 #include "tesstool.h"
 #include "preprocess.h"
+#include "cut.h"
 #include <iostream>
 #include <vector>
 using namespace std;
+
+const char *lang = "cv";
 
 void preprocessImage(char *filename) {
 	cv::Mat img = cv::imread(filename);
@@ -18,12 +21,31 @@ void preprocessImage(char *filename) {
 
 	PreImageProcessor *pip = new PreImageProcessor(gray);
 	pip->init();
-}
+    
+    vector<cv::Mat> textLines = pip->getTextLines();
+    vector<cv::RotatedRect> rotatedRects = pip->getRotatedRects();
+    pip->drawRectangles(pip->getGrayImage(), pip->getRotatedRects());
 
-void runTesseract() {
-	
-	const char *lang = "cv";
-//	printResults(recognizeByLine(lang, newImage, rects));
+    int len = textLines.size();
+    char myfile[16];
+    for (int i = 0; i < len; ++ i) {
+        Region region = cut(textLines[i]);
+        drawCutLine(region, i, "cut");
+
+        reCut(region);
+        drawCutLine(region, i, "recut");
+
+        merge(region);
+        drawCutLine(region, i, "merge");
+
+        /*
+        RecoResult recoResult;
+        recoResult = recognizeByTextLine(lang, textLines[i], region);
+        printResults(recoResult);
+        */
+    }
+
+    pip->generateCleanImage();
 }
 
 int main(int argc, char** argv) {
@@ -33,7 +55,6 @@ int main(int argc, char** argv) {
 	}
 
 	preprocessImage(argv[1]);
-//	runTesseract();
 	
 	return 0;
 }

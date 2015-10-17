@@ -13,48 +13,51 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <iostream>
 #include <vector>
+#include "cut.h"
 using namespace std;
 
-pair<vector<char *>, vector<int> > recognizeByLine(const char *lang,
-		cv::Mat img, vector<cv::Rect> rects) {
+struct RecoResult {
+    vector<int> confs;
+    vector<char *> results;
+};
+
+/*
+ * description: 识别整行的文字，单个文字识别
+ */
+RecoResult recognizeByTextLine(const char *lang, cv::Mat img, Region region) {
 	tesseract::TessBaseAPI api;
+    RecoResult recoResult;
+
 	api.Init(NULL, lang, tesseract::OEM_DEFAULT);
-
-	vector<char *> results;
-	vector<int> confidences;
-
 	api.SetImage((uchar *)img.data, img.cols, img.rows, 1, img.cols);
+    api.SetPageSegMode(tesseract::PSM_SINGLE_CHAR);
 
-	int len = rects.size();
+	int len = region.patches.size();
 	for (int i = 0; i < len; ++ i) {
-		cv::Rect rect = rects[i];
-		api.SetRectangle(rect.x, rect.y, rect.width, rect.height);
-		char *result = api.GetUTF8Text();
-		int conf = api.MeanTextConf();
-
-		results.push_back(result);
-		confidences.push_back(conf);
+        Patch patch = region.patches[i];
+        api.SetRectangle(patch.start, patch.top, 
+                         patch.end - patch.start, patch.bottom - patch.top);
+        char *result = api.GetUTF8Text();
+        int conf = api.MeanTextConf();
+        recoResult.results.push_back(result);
+        recoResult.confs.push_back(conf);
 	}
 
-	api.Clear();
-	api.End();
-
-	return make_pair(results, confidences);
+	api.Clear(); api.End();
+	return recoResult;
 }
 
-void printResults(pair<vector<char *>, vector<int> > p) {
-	vector<char *> results = p.first;
-	vector<int> confidence = p.second;
+void printResults(RecoResult recoResult) {
 
-	int len = results.size();
-	for (int i = 0; i < len; ++ i) {
-		cout << "****************************" << endl << endl;
-		cout << "The result of " << i << endl;
-		cout << results[len - i - 1] << endl;
+	int len = recoResult.results.size();
+	for (int i = len - 1; i >= 0 ; -- i) {
+//		cout << "****************************" << endl << endl;
+//		cout << "The result of " << i << endl;
+		cout << recoResult.results[len - i - 1] << " " ;
 
-		cout << "The confidence of " << i << endl;
-		cout << confidence[len - i - 1] << endl << endl;
-		cout << "****************************" << endl;
+//		cout << "The confidence of " << i << endl;
+//		cout << recoResult.confs[len - i - 1] << endl << endl;
+//		cout << "****************************" << endl;
 	}
 }
 

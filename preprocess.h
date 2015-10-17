@@ -19,6 +19,14 @@ public:
 	PreImageProcessor(cv::Mat mGrayImage);
 	~PreImageProcessor();
 	void init();
+    vector<cv::RotatedRect> getRotatedRects();
+    vector<cv::Mat> getTextLines();
+    int getMeanImageHeight();
+    cv::Mat getGrayImage();
+    cv::Mat getCleanImage();
+	void drawRectangles(cv::Mat, const vector<cv::RotatedRect> &);
+	void drawRectangles(cv::Mat, const vector<cv::Rect> &);
+	void generateCleanImage();
 
 private:
 	cv::Mat morphologyProcess(const cv::Mat &);
@@ -29,9 +37,6 @@ private:
 	void reFindRotatedRects();
 	void extractTextLines();
 	void calcMeanImageHeight();
-	void generateCleanImage();
-	void drawRectangles(cv::Mat, const vector<cv::RotatedRect> &);
-	void drawRectangles(cv::Mat, const vector<cv::Rect> &);
 	void translateRotatedRect(vector<cv::RotatedRect> &, cv::RotatedRect); 
 
 private:
@@ -64,7 +69,7 @@ void PreImageProcessor::init() {
 	reFindRotatedRects();
 	extractTextLines();
 	generateCleanImage();
-	drawRectangles(mGrayImage, mRotatedRects);
+//	drawRectangles(mGrayImage, mRotatedRects);
 }
 
 
@@ -105,7 +110,7 @@ cv::Mat PreImageProcessor::morphologyProcess(const cv::Mat &gray) {
 
 	element1 = getStructuringElement(cv::MORPH_RECT, cv::Size(20, 1));
 	element2 = getStructuringElement(cv::MORPH_RECT, cv::Size(28, 3));
-	kernel = getStructuringElement(cv::MORPH_RECT, cv::Size(9, 1));
+	kernel = getStructuringElement(cv::MORPH_RECT, cv::Size(12, 1));
 
 	cv::Sobel(gray, sobel, CV_8U, 1, 0, 1, 1, 0);
 	cv::GaussianBlur(sobel, blur, cv::Size(5, 5), 0, 0);
@@ -311,6 +316,8 @@ void PreImageProcessor::generateCleanImage() {
 		cv::Mat roi = mCleanImage(rect);
 		mTextLines[i].copyTo(roi);
 	}
+
+    cv::imwrite("newImage.png", mCleanImage);
 }
 
 
@@ -347,6 +354,26 @@ void PreImageProcessor::drawRectangles(cv::Mat src, const vector<cv::Rect> &rect
 		rectangle(img, rects[i].tl(), rects[i].br(), cv::Scalar(0, 255, 0), 2, 8, 0);
 	}
 	cv::imwrite("region.png", img);
+}
+
+vector<cv::RotatedRect> PreImageProcessor::getRotatedRects() {
+    return mRotatedRects;
+}
+
+    vector<cv::Mat> PreImageProcessor::getTextLines() {
+    return mTextLines;
+}
+
+int PreImageProcessor::getMeanImageHeight() {
+    return mMeanImageHeight;
+}
+
+cv::Mat PreImageProcessor::getGrayImage() {
+    return mGrayImage;
+}
+
+cv::Mat PreImageProcessor::getCleanImage() {
+    return mCleanImage;
 }
 
 #endif
