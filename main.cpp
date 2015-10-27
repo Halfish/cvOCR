@@ -38,6 +38,8 @@ void preprocessImage(char *filename) {
         merge(region);
         drawCutLine(region, i, "merge");
 
+        saveTextLines(region, i, "results");
+
         /*
         RecoResult recoResult;
         recoResult = recognizeByTextLine(lang, textLines[i], region);

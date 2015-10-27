@@ -13,6 +13,7 @@
 #include <iostream>
 #include <vector>
 #include <cstdio>
+#include <sys/stat.h>
 using namespace std;
 
 /*
@@ -421,6 +422,38 @@ void merge(Region &region) {
 	}
 	// clear vector;
 	newPatches.swap(region.patches);
+}
+
+/*
+ * 把第i行切分好的图片，存成dirname下的一个个小图片
+ *
+ * input: region 切分信息
+ * input: index 第 i 行文字
+ * input: dirname 要存放的单字图片的文件夹
+ */
+void saveTextLines(Region &region, int index, const char dirname[]) {
+    // create a File
+    // dirname/index/
+    char path[32];
+    sprintf(path, "%s/%d", dirname, index);
+    mkdir(path, 0755);
+
+    cv::Mat img = region.img;
+    int len = region.patches.size();
+    int count = 0;
+    for (int i = 0; i < len; ++ i) {
+        Patch patch = region.patches[i];
+        if (!validChinesePatch(patch, region.meanHeight)) {
+           continue; 
+        }
+        cv::Rect rect(patch.start, patch.top, 
+                      patch.end - patch.start, patch.bottom - patch.top);
+        cv::Mat roi = img(rect);
+        char filename[32]; 
+        sprintf(filename, "%s/%d.png", path, count);
+        count ++;
+        cv::imwrite(filename, roi);
+    }
 }
 
 #endif
