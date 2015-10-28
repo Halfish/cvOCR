@@ -1,33 +1,29 @@
 #!/bin/bash
 
 # magic.sh
-# 用于从文本和字体文件中生成特定的图片，切分成单字
-# 1. 创建 samples 文件夹
-# 2. 创建 存放单字的文件夹
-# 2. 根据 a.字体 b.曝光度 c.像素密度 生成字体文件
+# 用于从待训练文本和字体文件中生成大图片和文字信息
+# 1. 读取 ./source/common3000_chi.txt 中的3000+汉字
+# 2. 字体文件在 ./fonts/ 下，共5种常见字体
+# 3. 分辨率取 36 42 48 54
+# 4. 共生成 5 × 4 = 20 张图片
 
-FONTS=("微软雅黑" "楷体" "宋体")
-FONTS_DIR=("msyh" "simkai" "simsun")
+FONTS=("微软雅黑" "楷体" "宋体" "黑体" "仿宋")
+FONTS_DIR=("msyh" "simkai" "simsun" "simhei" "simfang")
 
-mkdir -p samples
+mkdir -p bigpic 
 for i in `seq ${#FONTS[@]}`
 do
     let j=$i-1
-    for exp in  -1 0 1;
+    for size in 36 42 48 54;
     do
-        mkdir -p ./samples/${FONTS_DIR[$j]}$exp
-        for size in 48;
-        do
-            mkdir -p ./samples/${FONTS_DIR[$j]}${exp}/$size
-            text2image \
-                --text=./source/common3000_chi.txt \
-                --font=${FONTS[$j]} \
-                --fonts_dir=./fonts/ \
-                --resolution=72 \
-                --ptsize=$size \
-                --char_spacing=0.2 \
-                --exposure $exp \
-                --outputbase=./pictures/cv.${FONTS_DIR[$j]}.exp${exp}.size$size
-        done
+        text2image \
+            --text=./source/common3000_chi.txt \
+            --font=${FONTS[$j]} \
+            --fonts_dir=./fonts/ \
+            --resolution=72 \
+            --ptsize=$size \
+            --char_spacing=0.2 \
+            --exposure=0 \
+            --outputbase=./bigpic/cv.${FONTS_DIR[$j]}$size
     done
 done
