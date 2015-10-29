@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import cPickle
 import os
+import time
 
 '''
 1.创建文件夹 eg ./samples/simsun44dilation51/
@@ -89,44 +90,67 @@ def normalizePatches(patches, saveddir):
         index = index + 1
 
 def generateSamples():
+    '''
+    读取 ./bigpic/ 下的所有图片
+        每一张图片都是3230个汉字，都调用extractPatches和normalizePatches
+
+    把归一化后的单字图片，放到 ./samples/ 下面
+    '''
     if (os.path.exists('./samples/') == False):
         os.mkdir('./samples')
-    fonts = ['msyh', 'simkai', 'simsun', 'simhei', 'simfang']
-    #fonts = ['simfang']
-    size = ['36', '42', '48', '54']
-    #size = ['48']
-    #morph = ['', 'close33']
-    morph = ['', 'close33', 'open13', 'open31', 'open33', 'dilate33', 
-             'dilate51', 'dilate15', 'erode13', 'erode31']
+    fonts = ['simkai', 'simsun', 'simhei', 'simfang']
+    size = ['36', '48']
+    morph = ['', 'close33']
+    morph = ['', 'close33', 'dilate13', 'dilate31', 'dilate33', 'erode13', 'erode31']
     count = 0
     total = str(len(fonts) * len(size))
     for f in fonts:
         for s in size:
             boxname = './bigpic/cv.' + f + s + '.box'
             count = count + 1
-            print(str(count) + '/' + total + '\t-->\t' + boxname)
+            print('reading ' + str(count) + '/' + total + '\t-->\t' + boxname)
             for m in morph:
                 picname = './bigpic/cv.' + f + s + '.' + m + '.tif'
                 picname = picname.replace('..', '.')
                 dirname = './samples/' + f + s + m + '/'
                 patches = extractPatches([picname, boxname]);
                 normalizePatches(patches, dirname)
+    pass
 
 def dumpData():
+    '''
+    生成数据集 data.pkl
+    生成解码器 decoder.pkl
+    '''
+    print 'dumping data...'
     x = np.array(train_set_x)
     print(x.shape)
     x = x.reshape(x.shape[0], 1, x.shape[1], x.shape[2])
-    y = np.array(train_set_y) 
     l = np.array(label)
 
-    f = open("./data.pkl", "wb")
-    train_set = [x, l, y]
-    print 'dumping data...'
+    f = open('./data.pkl', 'wb')
+    train_set = [x, l]
+    print 'saving data.pkl'
     cPickle.dump(train_set, f)
     f.close()
 
-if __name__== '__main__':
-    generateSamples()
-    dumpData()
+    f = open('./decoder.pkl', 'wb')
+    y = train_set_y 
+    y = y[0:3230]
+    print 'dumping decoder...'
+    cPickle.dump(y, f)
+    f.close()
 
+if __name__== '__main__':
+    s = time.time()
+    generateSamples()
+    e = time.time()
+    print('\n\n cost ' + str((e - s) / 60) + ' mins ' + 
+          str((e - s) % 60) + ' seconds to generate samples \n\n')
+
+    s = time.time()
+    dumpData()
+    e = time.time()
+    print('\n\n cost ' + str((e - s) / 60) + ' mins ' + 
+          str((e - s) % 60) + ' seconds to dump data \n\n')
 

@@ -5,29 +5,43 @@ import cv2
 import numpy as np
 import cPickle
 
-# 读取小图片，生成训练集
+'''
+程序运行的前提是要有 model.pkl 和 decoder.pkl
+
+predict.py 根据已经训练好的模型，读入图片并开始预测单字
+模型存在 model.pkl 中
+读取的单字图片在 ../results/ 中
+返回的data_x.shape为(7, 1, 48, 48)
+'''
+
+# 根据文件夹名读取下面所有的小图片，生成测试集
 def load_data(filename):
     data_x = []
     for f in os.listdir(filename):
         fullname = os.path.join(filename, f)
-        print fullname
         img = cv2.imread(fullname, 0)
         img = cv2.resize(img, (48, 48))
-        data_x.append(img)
-    img = cv2.resize(img, (48, 48))
-    data_x.append(img)
-    data_x = np.array(data_x)
+        name, ext = os.path.splitext(f)
+        data_x.append([img, int(name)])
+    data_x.sort(lambda x,y:cmp(x[1], y[1]))
+    x = [] 
+    for a, b in data_x:
+        x.append(a)
+    data_x = np.array(x)
     data_x = data_x.reshape(len(data_x), 1, 48, 48)
-    print(data_x.shape)
     return data_x
 
-def recognize(data_x):
-    model = cPickle.load(open('./model.pkl', 'rb'))
+'''
+根据model和data_x，找出概率最大的结果并打印出来
+'''
+def recognize(model, decoder, data_x):
     for x in data_x:
         x = x.reshape(1, 1, 48, 48)
         index = np.argmax(model.predict(x))
-        print(index)
+        print(decoder(index))
 
 if __name__ == '__main__':
-    recognize(load_data('../results/1'))
+    model = cPickle.load(open('./model.pkl', 'rb'))
+    decoder = cPickle.load(open('./decoder.pkl', 'rb'))
+    recognize(model, decoder, load_data('../results/1'))
     pass
