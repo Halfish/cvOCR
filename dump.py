@@ -8,7 +8,7 @@ import time
 
 '''
 1.创建文件夹 eg ./samples/simsun44dilation51/
-2.从./bigpics/下读取tif和box文件，每张图片分出3000+个汉字，放到文件夹中
+2.从./bigpic/下读取tif和box文件，每张图片分出3000+个汉字，放到文件夹中
 3.归一化，打包成data.pkl
 '''
 
@@ -98,10 +98,14 @@ def generateSamples():
     '''
     if (os.path.exists('./samples/') == False):
         os.mkdir('./samples')
+    '''
+    fonts = ['simkai']
+    size = ['36']
+    morph = ['']
+    '''
     fonts = ['simkai', 'simsun', 'simhei', 'simfang']
-    size = ['36', '48']
-    morph = ['', 'close33']
-    morph = ['', 'close33', 'dilate13', 'dilate31', 'dilate33', 'erode13', 'erode31']
+    size = ['36', '42']
+    morph = ['', 'close33', 'dilate13', 'dilate31', 'dilate33', 'erode13', 'erode31', 'gblur11', 'gblur13', 'gblur15', 'gblur17']
     count = 0
     total = str(len(fonts) * len(size))
     for f in fonts:
@@ -141,16 +145,18 @@ def dumpData():
     cPickle.dump(y, f)
     f.close()
 
+    os.system('ls -lh *.pkl')
+
 if __name__== '__main__':
     s = time.time()
     generateSamples()
     e = time.time()
-    print('\n\n cost ' + str((e - s) / 60) + ' mins ' + 
-          str((e - s) % 60) + ' seconds to generate samples \n\n')
+    print('\n cost ' + str(int((e - s) / 60)) + ' mins ' + 
+          str(float('%0.3f'%((e - s) % 60))) + ' seconds to generate samples \n\n')
 
     s = time.time()
     dumpData()
     e = time.time()
-    print('\n\n cost ' + str((e - s) / 60) + ' mins ' + 
-          str((e - s) % 60) + ' seconds to dump data \n\n')
+    print('\n cost ' + str(int((e - s) / 60)) + ' mins ' + 
+          str(float('%0.3f'%((e - s) % 60))) + ' seconds to dump data \n\n')
 

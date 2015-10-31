@@ -22,6 +22,11 @@ using namespace std;
 const int MIN_MARGIN = 6;
 
 /*
+ * 生成的单字距离边缘的空白的长度
+ */
+const int PIC_PADDING = 7;
+
+/*
  * description: 最小的Patch长度和高度，用于判断标点和特殊符号
  */
 const int MIN_PATCH_WIDTH = 15;
@@ -449,10 +454,14 @@ void saveTextLines(Region &region, int index, const char dirname[]) {
         cv::Rect rect(patch.start, patch.top, 
                       patch.end - patch.start, patch.bottom - patch.top);
         cv::Mat roi = img(rect);
+        cv::Mat pic = 255 * cv::Mat::ones(roi.rows + PIC_PADDING, roi.cols + PIC_PADDING, CV_8UC1);
+        cv::Rect r((pic.cols - roi.cols) / 2,(pic.rows - roi.rows) / 2, roi.cols, roi.rows);
+        roi.copyTo(pic(r));
+        
         char filename[32]; 
         sprintf(filename, "%s/%d.png", path, count);
         count ++;
-        cv::imwrite(filename, roi);
+        cv::imwrite(filename, pic);
     }
 }
 

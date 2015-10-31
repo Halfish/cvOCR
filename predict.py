@@ -24,7 +24,7 @@ def load_data(filename):
         name, ext = os.path.splitext(f)
         data_x.append([img, int(name)])
     data_x.sort(lambda x,y:cmp(x[1], y[1]))
-    x = [] 
+    x = []
     for a, b in data_x:
         x.append(a)
     data_x = np.array(x)
@@ -35,13 +35,20 @@ def load_data(filename):
 根据model和data_x，找出概率最大的结果并打印出来
 '''
 def recognize(model, decoder, data_x):
+    print('\nrecognizing...')
     for x in data_x:
         x = x.reshape(1, 1, 48, 48)
-        index = np.argmax(model.predict(x))
-        print(decoder(index))
+        r = model.predict(x)
+        index = np.argmax(r)
+        print(decoder[index] + '\t-->\t'  + str(r.max()))
 
 if __name__ == '__main__':
+    print('loading model...')
     model = cPickle.load(open('./model.pkl', 'rb'))
     decoder = cPickle.load(open('./decoder.pkl', 'rb'))
-    recognize(model, decoder, load_data('../results/1'))
+    print('loading model finished')
+
+    recognize(model, decoder, load_data('./results/0'))
+    recognize(model, decoder, load_data('./results/1'))
+    recognize(model, decoder, load_data('./results/2'))
     pass

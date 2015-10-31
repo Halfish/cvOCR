@@ -34,7 +34,7 @@ def load_data():
     label = np_utils.to_categorical(label, 3230)
 
     t = int(time.time() - start)
-    print('cost ' + str(t / 60) + ' mins, ' + str(t % 60) + ' seconds')
+    print('\tcost ' + str(t / 60) + ' mins, ' + str(t % 60) + ' seconds')
     print(data.shape[0], ' samples')
 
     return data, label
@@ -98,5 +98,7 @@ def training():
     return model
 
 if __name__ == '__main__':
+    '''
+    运行这个程序就是要重新训练的，只有预测才会需要load model.pkl
+    '''
     training()
-    pass
