@@ -14,7 +14,7 @@ mkdir -p bigpic
 for i in `seq ${#FONTS[@]}`
 do
     let j=$i-1
-    for size in 36 42;
+    for size in 36;
     do
         text2image \
             --text=./source/common3000_chi.txt \

@@ -28,6 +28,7 @@ def run():
         n = './bigpic/' + n
         img = cv2.imread(n + '.tif', 0)
 
+        '''
         kernel1 = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 3))
         kernel2 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 1))
         kernel3 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
@@ -43,7 +44,6 @@ def run():
         cv2.imwrite(n + ".erode13.tif", erosion)
         erosion = cv2.erode(img, kernel2, iterations = 1)
         cv2.imwrite(n + ".erode31.tif", erosion)
-
         blur = cv2.GaussianBlur(img, (11, 11), 0)
         adaptive = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
         cv2.imwrite(n + ".gblur11.tif", adaptive)
@@ -56,6 +56,7 @@ def run():
         blur = cv2.GaussianBlur(img, (17, 17), 0)
         adaptive = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
         cv2.imwrite(n + ".gblur17.tif", adaptive)
+        '''
 
 if __name__ == '__main__':
     run()

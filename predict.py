@@ -4,6 +4,7 @@ import os
 import cv2
 import numpy as np
 import cPickle
+import cnn
 
 '''
 程序运行的前提是要有 model.pkl 和 decoder.pkl
@@ -44,7 +45,8 @@ def recognize(model, decoder, data_x):
 
 if __name__ == '__main__':
     print('loading model...')
-    model = cPickle.load(open('./model.pkl', 'rb'))
+    model = cnn.build_model()
+    model.load_weights('model.h5')
     decoder = cPickle.load(open('./decoder.pkl', 'rb'))
     print('loading model finished')
 

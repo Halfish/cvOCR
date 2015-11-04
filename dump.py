@@ -104,8 +104,10 @@ def generateSamples():
     morph = ['']
     '''
     fonts = ['simkai', 'simsun', 'simhei', 'simfang']
-    size = ['36', '42']
-    morph = ['', 'close33', 'dilate13', 'dilate31', 'dilate33', 'erode13', 'erode31', 'gblur11', 'gblur13', 'gblur15', 'gblur17']
+    #size = ['36', '42']
+    size = ['36']
+    #morph = ['', 'close33', 'dilate13', 'dilate31', 'dilate33', 'erode13', 'erode31', 'gblur11', 'gblur13', 'gblur15', 'gblur17']
+    morph = ['']
     count = 0
     total = str(len(fonts) * len(size))
     for f in fonts:
