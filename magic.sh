@@ -14,7 +14,7 @@ mkdir -p bigpic
 for i in `seq ${#FONTS[@]}`
 do
     let j=$i-1
-    for size in 36;
+    for size in 36 42;
     do
         text2image \
             --text=./source/common3000_chi.txt \
@@ -24,6 +24,10 @@ do
             --ptsize=$size \
             --char_spacing=0.2 \
             --exposure=0 \
-            --outputbase=./bigpic/cv.${FONTS_DIR[$j]}$size
+            --outputbase=./bigpic/cv.${FONTS_DIR[$j]}$size \
+            --xsize=4800 \
+            --ysize=4800
     done
 done
+
+ls ./bigpic/*.tif | wc

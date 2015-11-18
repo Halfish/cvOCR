@@ -28,22 +28,29 @@ def run():
         n = './bigpic/' + n
         img = cv2.imread(n + '.tif', 0)
 
-        '''
         kernel1 = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 3))
         kernel2 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 1))
-        kernel3 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        closing = cv2.morphologyEx(img, cv2.MORPH_CLOSE, kernel3)
-        cv2.imwrite(n + ".close33.tif", closing)
+
         dilation = cv2.dilate(img, kernel1, iterations = 1)
-        cv2.imwrite(n + ".dilate13.tif", dilation)
+        blur = cv2.GaussianBlur(dilation, (13, 13), 0)
+        adaptive = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+        cv2.imwrite(n + ".dilate13.tif", adaptive)
+
         dilation = cv2.dilate(img, kernel2, iterations = 1)
-        cv2.imwrite(n + ".dilate31.tif", dilation)
-        dilation = cv2.dilate(img, kernel3, iterations = 1)
-        cv2.imwrite(n + ".dilate33.tif", dilation)
+        blur = cv2.GaussianBlur(dilation, (13, 13), 0)
+        adaptive = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+        cv2.imwrite(n + ".dilate31.tif", adaptive)
+
         erosion = cv2.erode(img, kernel1, iterations = 1)
-        cv2.imwrite(n + ".erode13.tif", erosion)
+        blur = cv2.GaussianBlur(erosion, (13, 13), 0)
+        adaptive = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+        cv2.imwrite(n + ".erode13.tif", adaptive)
+
         erosion = cv2.erode(img, kernel2, iterations = 1)
-        cv2.imwrite(n + ".erode31.tif", erosion)
+        blur = cv2.GaussianBlur(erosion, (13, 13), 0)
+        adaptive = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+        cv2.imwrite(n + ".erode31.tif", adaptive)
+
         blur = cv2.GaussianBlur(img, (11, 11), 0)
         adaptive = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
         cv2.imwrite(n + ".gblur11.tif", adaptive)
@@ -53,10 +60,6 @@ def run():
         blur = cv2.GaussianBlur(img, (15, 15), 0)
         adaptive = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
         cv2.imwrite(n + ".gblur15.tif", adaptive)
-        blur = cv2.GaussianBlur(img, (17, 17), 0)
-        adaptive = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-        cv2.imwrite(n + ".gblur17.tif", adaptive)
-        '''
 
 if __name__ == '__main__':
     run()

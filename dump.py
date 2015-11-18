@@ -5,6 +5,7 @@ import numpy as np
 import cPickle
 import os
 import time
+import random
 
 '''
 1.创建文件夹 eg ./samples/simsun44dilation51/
@@ -37,12 +38,41 @@ def extractPatches(filename):
             y2 = img.shape[0] - s[3]
             [x1, x2] = [s[0], s[2]]
             patch = img[y2:y1, x1:x2]
-            #patch = cv2.adaptiveThreshold(patch, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
             if (ch == '\t'):
                 patches.append((patch, False, ch))
             else:
                 patches.append((patch, True, ch))
     return patches 
+
+def imagedistort(img):
+    '''
+    distort an image
+        shift horizontally and vertically
+        rotated clockwise and anticlockwise
+    '''
+    shift_range = 0.05
+    rotate_range = 0.02
+
+    h, w = img.shape
+    size = max(w, h) *2
+    normal = 255 * np.ones((size, size), np.uint8)
+    normal[(size - h) / 2: (size + h) / 2, (size - w) / 2: (size + w) / 2] = img
+
+    # rotate
+    degree = 90 * random.uniform(-rotate_range, rotate_range)
+    M = cv2.getRotationMatrix2D((size/2, size/2), degree, 1)
+    rotated = cv2.warpAffine(normal, M, (size, size))
+
+    # shift
+    shift_value_x = size / 2 * random.uniform(-shift_range, shift_range)
+    shift_value_y = size / 2 * random.uniform(-shift_range, shift_range)
+    M = np.float32([[1, 0, shift_value_x], [0, 1, shift_value_y]])
+    shift = cv2.warpAffine(rotated, M, (size, size))
+    # crop
+    center = (size / 2, size / 2)
+    crop = cv2.getRectSubPix(shift, (w, h), center) 
+
+    return crop
 
 def normalizePatches(patches, saveddir):
     '''
@@ -64,14 +94,11 @@ def normalizePatches(patches, saveddir):
             maxsize= p[0].shape[0]
         if (p[0].shape[1] > maxsize) :
             maxsize = p[0].shape[1]
-    if (maxsize > 50):
-        pass
-        #print "maxsize is " + str(maxsize)
+    maxsize = maxsize + maxsize / 4 
     count = 0
     for p in patches:
         if (p[1] == True):
             count = count + 1
-    #print 'only ' + str(count) + ' valid'
     for p in patches:
         if (p[1] == False):
             continue
@@ -81,10 +108,13 @@ def normalizePatches(patches, saveddir):
         y1 = (maxsize - p[0].shape[0]) / 2        
         y2 = y1 + p[0].shape[0] 
         norpic[y1:y2, x1:x2] = p[0]
-        final = cv2.resize(norpic, (48, 48))
-        cv2.imwrite(os.path.join(saveddir, str(index) + '.png'), final)
+        resizePic = cv2.resize(norpic, (48, 48))
+        blur = cv2.GaussianBlur(resizePic, (1, 1), 0)
+        ret, binary = cv2.threshold(blur, 127, 255, cv2.THRESH_BINARY)
+        #final = imagedistort(binary)
+        cv2.imwrite(os.path.join(saveddir, str(index) + '.png'), binary)
 
-        train_set_x.append(final)
+        train_set_x.append(binary)
         train_set_y.append(p[2])
         label.append(index)
         index = index + 1
@@ -104,10 +134,8 @@ def generateSamples():
     morph = ['']
     '''
     fonts = ['simkai', 'simsun', 'simhei', 'simfang']
-    #size = ['36', '42']
-    size = ['36']
-    #morph = ['', 'close33', 'dilate13', 'dilate31', 'dilate33', 'erode13', 'erode31', 'gblur11', 'gblur13', 'gblur15', 'gblur17']
-    morph = ['']
+    size = ['36', '42']
+    morph = ['', 'dilate13', 'dilate31', 'erode13', 'erode31', 'gblur11', 'gblur13', 'gblur15']
     count = 0
     total = str(len(fonts) * len(size))
     for f in fonts:

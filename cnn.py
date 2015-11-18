@@ -17,7 +17,6 @@ from keras.utils import np_utils
 from six.moves import range
 import random
 import cPickle
-import sys
 import time
 
 def load_data():
@@ -78,7 +77,7 @@ def build_model():
 
     #使用SGD + momentum
     #model.compile里的参数loss就是损失函数(目标函数)
-    sgd = SGD(l2=0.0,lr=0.01, decay=5e-4, momentum=0.9, nesterov=True)
+    sgd = SGD(l2=0.0,lr=0.01, decay=5e-5, momentum=0.9, nesterov=True)
     model.compile(loss='categorical_crossentropy', optimizer=sgd,class_mode="categorical")
     print('compile finished')
 
@@ -91,10 +90,8 @@ def training():
     #数据经过随机打乱shuffle=True。verbose=1，show_accuracy=True，训练时每一个epoch都输出accuracy。
     #validation_split=0.2，将20%的数据作为验证集。
     model = build_model()
-    model.fit(data, label, batch_size=100, nb_epoch=2,shuffle=True,verbose=1,show_accuracy=True,validation_split=0.2)
+    model.fit(data, label, batch_size=100, nb_epoch=50,shuffle=True,verbose=1,show_accuracy=True,validation_split=0.2)
     print('fit finished')
-    sys.setrecursionlimit(10000)
-    #cPickle.dump(model, open('./model.pkl', 'wb'))
     model.save_weights('model.h5', True)
 
 if __name__ == '__main__':

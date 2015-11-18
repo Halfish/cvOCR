@@ -10,7 +10,14 @@
 #include "cut.h"
 #include <iostream>
 #include <vector>
+#include <fstream>
 using namespace std;
+
+
+/*
+ * 读取图片简历，分析存储文本行（textLine），切分（cut），
+ * 重切分（recut），合并（merge）
+ */
 
 const char *lang = "cv";
 
@@ -26,6 +33,8 @@ void preprocessImage(char *filename) {
     vector<cv::RotatedRect> rotatedRects = pip->getRotatedRects();
     pip->drawRectangles(pip->getGrayImage(), pip->getRotatedRects());
 
+    fstream out("region.txt", ios::out);
+    out.close();
     int len = textLines.size();
     char myfile[16];
     for (int i = 0; i < len; ++ i) {
@@ -38,7 +47,9 @@ void preprocessImage(char *filename) {
         merge(region);
         drawCutLine(region, i, "merge");
 
-        saveTextLines(region, i, "results");
+        //saveTextLines(region, i, "results");
+        findPatchType(region, i);
+        saveRegionToFile(region, i, "region.txt");
 
         /*
         RecoResult recoResult;

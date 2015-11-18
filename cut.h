@@ -12,35 +12,41 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <iostream>
 #include <vector>
+#include <fstream>
 #include <cstdio>
 #include <sys/stat.h>
 using namespace std;
 
 /*
- * description: 最小的Patch之间的距离，用于中文偏旁的合并
+ * 把大图片切分成小图片
  */
+
+// 最小的Patch之间的距离，用于中文偏旁的合并
 const int MIN_MARGIN = 6;
 
-/*
- * 生成的单字距离边缘的空白的长度
- */
+// 生成的单字距离边缘的空白的长度
 const int PIC_PADDING = 7;
 
-/*
- * description: 最小的Patch长度和高度，用于判断标点和特殊符号
- */
+// 最小的Patch长度和高度，用于判断标点和特殊符号
 const int MIN_PATCH_WIDTH = 15;
 const int MIN_PATCH_HEIGHT= 15;
 
-/*
- *	desciption: 最小的Patch高和宽之间的相似度
- */
+// 最小的Patch高和宽之间的相似度
 const float MIN_SIMILIRITY = 0.8;
 
-/*
- * description: 最小的若连通点的像素值，用于重切分
- */
+// 最小的若连通点的像素值，用于重切分
 const int MIN_CUT_PIXES = 4;
+
+/*
+ * 每一个Patch的类型定义
+ */
+enum PatchType {
+    NOTYPE = 0,     // 未定义
+    HANZI = 1,      // 汉字
+    ENG = 2,        // 英文字母（大小写），数字，大标点
+    PUNC = 3,       // 小标点
+    NOISE = 4       // 噪音
+};
 
 /*
  * description: 单个块的信息，包括
@@ -48,23 +54,23 @@ const int MIN_CUT_PIXES = 4;
  *	-- end		末点列数
  *	-- top		上面最高点的行数
  *	-- bottom	下面最低点的行数
- *	-- available 是否可合并
+ *	-- ptype    类型 
  */
 struct Patch {
-	Patch(int s, int e, bool b) {
+	Patch(int s, int e, PatchType pt) {
 		start = s;
 		end = e;
-		isAvailable = b;
+		ptype = pt;
 	}
-	Patch(int s, int e, int t, int b, bool a) {
+	Patch(int s, int e, int t, int b, PatchType pt) {
 		start = s;
 		end = e;
 		top = t;
 		bottom = b;
-		isAvailable = a;
+		ptype = pt;
 	}
 	int start, end, top, bottom;
-	bool isAvailable;
+	PatchType ptype;
 };
 
 /*
@@ -75,6 +81,7 @@ struct Patch {
 struct Region {
 	cv::Mat img;
 	int meanHeight;
+    int meanWidth;
 	vector<Patch> patches;
 };
 
@@ -120,10 +127,11 @@ void findHeightForPatch(cv::Mat &img, Patch &patch) {
  *	高度低于整个图片高度一半的，可能是小字母，可不算在内
  * output: int meanHeight 平均高度
  */
-void findMeanHeightForRegion(Region &region) {
+void findMeanHeightWidthForRegion(Region &region) {
 	int len = region.patches.size();
 	int count = 0;
 	int sum = 0;
+    int sumW = 0;
 	for (int i = 0; i < len; ++ i) {
 		int width = region.patches[i].end - region.patches[i].start;
 		int height = region.patches[i].bottom - region.patches[i].top;
@@ -134,14 +142,17 @@ void findMeanHeightForRegion(Region &region) {
 		}
 
 		sum += height;
+        sumW += width;
 		count ++;
 	}
 
 	// 0 check
 	if (count == 0) {
 		region.meanHeight = region.img.rows - 4;
+        region.meanWidth = region.img.cols - 4;
 	} else {
 		region.meanHeight = sum / count;
+        region.meanWidth = sumW / count;
 	}
 }
 
@@ -154,7 +165,7 @@ void findHeights(Region &region) {
 	for(int i = 0; i < len; ++ i) {
 		findHeightForPatch(region.img, region.patches[i]);
 	}
-	findMeanHeightForRegion(region);
+	findMeanHeightWidthForRegion(region);
 }
 
 /*
@@ -200,7 +211,7 @@ void drawCutLine(const Region &region, int index, const char *dirname) {
 			end = i;
 			if ((end - start) > 2) {
 				// make sure the width can not be zero
-				region.patches.push_back(Patch(start, end, false));
+				region.patches.push_back(Patch(start, end, NOTYPE));
 			}
 		}
 	}
@@ -242,10 +253,10 @@ vector<Patch> doReCut(const Region &region, const Patch patch, const int minCutP
 			e = i+1;
 			if ((e - s) > region.meanHeight * 5 / 4) {
 				vector<Patch> tmp = doReCut(region, 
-						Patch(s + patch.start, e + patch.start, false), minCutPixes + 1);
+						Patch(s + patch.start, e + patch.start, NOTYPE), minCutPixes + 1);
 				v.insert(v.end(), tmp.begin(), tmp.end());
 			} else if ((e - s) > 2) {
-				v.push_back(Patch(s + patch.start, e + patch.start, false));
+				v.push_back(Patch(s + patch.start, e + patch.start, NOTYPE));
 			}
 		}
 	}
@@ -287,10 +298,10 @@ bool validChinesePatch(Patch patch, int standard) {
 	float height = patch.bottom - patch.top;
 	
 	float ratio = (width < height) ? width / height : height / width;
-	float ratio1 = (width < standard) ? width / standard : standard / width;
-	float ratio2 = (height < standard) ? height / standard : standard / height;
+	float ratiow = (width < standard) ? width / standard : standard / width;
+	float ratioh = (height < standard) ? height / standard : standard / height;
 	
-	if (ratio >= 0.83 && ratio1 >= 0.8 && ratio2 >= 0.8) {
+	if (ratio >= 0.83 && ratioh >= 0.8 && ratiow >= 0.8) {
 		/*
 		cout << endl << "valid" << endl;
 		cout << "patch width = " << width << " height = " << height << endl;
@@ -366,13 +377,13 @@ void merge(Region &region) {
 
 		Patch tmpPatch = Patch(patch1.start, patch2.end, 
 				min(patch1.top, patch2.top), 
-				max(patch1.bottom, patch2.bottom), false);
+				max(patch1.bottom, patch2.bottom), HANZI);
 
 		if (i + 2 < len) {
 			Patch patch3 = region.patches[i + 2];
 			Patch bigPatch = Patch(patch1.start, patch3.end, 
 					min(tmpPatch.top, patch3.top),
-					max(tmpPatch.bottom, patch3.bottom), false);
+					max(tmpPatch.bottom, patch3.bottom), HANZI);
 			if (validChinesePatch(bigPatch, region.meanHeight)) {
 				newPatches.push_back(bigPatch);
 				i = i + 2;
@@ -384,7 +395,7 @@ void merge(Region &region) {
 			Patch patch4 = region.patches[i + 3];
 			Patch bigPatch = Patch(patch1.start, patch4.end, 
 					min(tmpPatch.top, patch4.top),
-					max(tmpPatch.bottom, patch4.bottom), false);
+					max(tmpPatch.bottom, patch4.bottom), HANZI);
 			if (validChinesePatch(bigPatch, region.meanHeight)) {
 				newPatches.push_back(bigPatch);
 				i = i + 3;
@@ -397,6 +408,7 @@ void merge(Region &region) {
 			canMerge = false;
 		}
 		if (validChinesePatch(patch1, region.meanHeight)) {
+            patch1.ptype = HANZI;
 			canMerge = false;
 		}
 		if (!validChinesePatch(tmpPatch, region.meanHeight)) {
@@ -418,15 +430,44 @@ void merge(Region &region) {
 		if (!canMerge) {
 			newPatches.push_back(patch1);
 		} else {
+            tmpPatch.ptype = HANZI;
 			newPatches.push_back(tmpPatch);
 			++ i;
 		}
 	}
 	if (i == len - 1) {
-		newPatches.push_back(region.patches[i]);
+        Patch p = region.patches[i];
+        if (validChinesePatch(p, region.meanHeight)) {
+            p.ptype = HANZI;
+        }
+		newPatches.push_back(p);
 	}
 	// clear vector;
 	newPatches.swap(region.patches);
+}
+
+/*
+ * 把细长型，如“目”，扁的，如“一”，这种字挑出来，表示为汉字
+ */
+ void findPatchType(Region &region, int index) {
+    int standardH = region.meanHeight;
+    int standardW = region.meanWidth;
+    int len = region.patches.size();
+    for (int i = 1; i < len-1; ++ i) {
+        Patch patch1 = region.patches[i-1];
+        Patch patch2 = region.patches[i];
+        Patch patch3 = region.patches[i+1];
+        if (patch2.ptype == HANZI) {
+            continue;
+        }
+        float height = patch2.bottom - patch2.top;
+        float width = patch2.end - patch2.start;
+	    float ratiow = (width < standardW) ? width / standardW : standardW / width;
+	    float ratioh = (height < standardH) ? height / standardH : standardH / height;
+        if ((ratiow > 0.8 || (ratioh > 0.8 && ratiow > 0.5)) && (patch1.ptype == HANZI || patch3.ptype == HANZI)) {
+            region.patches[i].ptype = HANZI;
+        } 
+    }
 }
 
 /*
@@ -463,6 +504,24 @@ void saveTextLines(Region &region, int index, const char dirname[]) {
         count ++;
         cv::imwrite(filename, pic);
     }
+}
+
+/*
+ * 将Region的信息存到一个文件里去，方便让Python读取并识别
+ */
+void saveRegionToFile(Region &region, int index, const char filename[] ) {
+    ofstream out;
+    out.open(filename, ios::app);
+    out << index << endl;
+    int len = region.patches.size();
+    for (int i = 0; i < len; ++ i) {
+        Patch patch = region.patches[i]; 
+        out << patch.start << " " << patch.top << " ";
+        out << patch.end << " " << patch.bottom << " ";
+        out << patch.ptype<< endl;
+    }
+    out << endl;
+    out.close();
 }
 
 #endif

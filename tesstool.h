@@ -16,6 +16,10 @@
 #include "cut.h"
 using namespace std;
 
+/*
+ * tesseract调用
+ */ 
+
 struct RecoResult {
     vector<int> confs;
     vector<char *> results;

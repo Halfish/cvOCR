@@ -13,6 +13,10 @@
 #include<iostream>
 using namespace std;
 
+/*
+ * 图片预处理类
+ */
+
 class PreImageProcessor {
 
 public:
@@ -232,8 +236,7 @@ cv::Mat PreImageProcessor::getROI(cv::Mat gray, cv::RotatedRect rotate) {
 			}
 		}
 	}
-
-	cv::imwrite("roi.png", roi);
+	//cv::imwrite("roi.png", roi);
 	return roi;
 }
 
@@ -317,7 +320,7 @@ void PreImageProcessor::generateCleanImage() {
 		mTextLines[i].copyTo(roi);
 	}
 
-    cv::imwrite("newImage.png", mCleanImage);
+    //cv::imwrite("newImage.png", mCleanImage);
 }
 
 
@@ -335,7 +338,7 @@ void PreImageProcessor::drawRectangles(cv::Mat src, const vector<cv::RotatedRect
 			line(img, vertices[j], vertices[(j+1) % 4], cv::Scalar(0, 255, 0), 3, 8);
 		}
 	}
-	cv::imwrite("region.png", img);
+	//cv::imwrite("region.png", img);
 }
 
 
@@ -353,14 +356,14 @@ void PreImageProcessor::drawRectangles(cv::Mat src, const vector<cv::Rect> &rect
 
 		rectangle(img, rects[i].tl(), rects[i].br(), cv::Scalar(0, 255, 0), 2, 8, 0);
 	}
-	cv::imwrite("region.png", img);
+	//cv::imwrite("region.png", img);
 }
 
 vector<cv::RotatedRect> PreImageProcessor::getRotatedRects() {
     return mRotatedRects;
 }
 
-    vector<cv::Mat> PreImageProcessor::getTextLines() {
+vector<cv::Mat> PreImageProcessor::getTextLines() {
     return mTextLines;
 }
 
