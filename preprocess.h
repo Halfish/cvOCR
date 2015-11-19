@@ -94,7 +94,7 @@ void PreImageProcessor::rotatedRectsFilter(vector<cv::RotatedRect> &origin) {
 			rRect.angle += 90;
 			swap(rRect.size.width, rRect.size.height);
 		}
-		if(rRect.size.width > rRect.size.height) {
+		if(rRect.size.width > rRect.size.height * 3 / 2) {
 			v.push_back(rRect);			
 		}
 	}

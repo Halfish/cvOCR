@@ -33,29 +33,25 @@ void preprocessImage(char *filename) {
     vector<cv::RotatedRect> rotatedRects = pip->getRotatedRects();
     pip->drawRectangles(pip->getGrayImage(), pip->getRotatedRects());
 
+    // 创建和清空文本
     fstream out("region.txt", ios::out);
     out.close();
     int len = textLines.size();
     char myfile[16];
+    cout << "序号\t汉字数\t英文数\t高度\t类型" << endl;
     for (int i = 0; i < len; ++ i) {
         Region region = cut(textLines[i]);
         drawCutLine(region, i, "cut");
-
         reCut(region);
         drawCutLine(region, i, "recut");
-
         merge(region);
         drawCutLine(region, i, "merge");
 
-        //saveTextLines(region, i, "results");
+        findTextlineType(region, i);
         findPatchType(region, i);
+        findEnglishText(region, i);
+        drawCutLine(region, i, "eng");
         saveRegionToFile(region, i, "region.txt");
-
-        /*
-        RecoResult recoResult;
-        recoResult = recognizeByTextLine(lang, textLines[i], region);
-        printResults(recoResult);
-        */
     }
 
     pip->generateCleanImage();

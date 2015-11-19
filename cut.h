@@ -41,11 +41,11 @@ const int MIN_CUT_PIXES = 4;
  * 每一个Patch的类型定义
  */
 enum PatchType {
-    NOTYPE = 0,     // 未定义
-    HANZI = 1,      // 汉字
-    ENG = 2,        // 英文字母（大小写），数字，大标点
-    PUNC = 3,       // 小标点
-    NOISE = 4       // 噪音
+    P_NOTYPE = 0,     // 未定义，会用自己训练的分类器识别
+    P_HANZI = 1,      // 汉字
+    P_ENG = 2,        // 英文字母（大小写），数字，大标点，会被Tesseract识别
+    P_PUNC = 3,       // 小标点
+    P_NOISE = 4       // 噪音
 };
 
 /*
@@ -57,6 +57,13 @@ enum PatchType {
  *	-- ptype    类型 
  */
 struct Patch {
+    Patch() {
+        start = 0;
+        end = 0;
+        top = 0;
+        bottom = 0;
+        ptype = P_NOTYPE;
+    }
 	Patch(int s, int e, PatchType pt) {
 		start = s;
 		end = e;
@@ -74,7 +81,17 @@ struct Patch {
 };
 
 /*
- * description: 单张图片(单行)的信息
+ * 每一个Region的类型定义
+ */
+enum RegionType {
+    R_NOTYPE = 0,       // 未定义
+    R_HANZI = 1,        // 这行文本包含了很多汉字 
+    R_ENG = 2,          // 这行文本是纯英文 
+    R_NOISE = 3         // 这行文本是噪声
+};
+
+/*
+ * description: 单张图片(单行文字)的信息
  *	-- img		原始图片
  *	-- patches	每个块信息
  */
@@ -83,6 +100,13 @@ struct Region {
 	int meanHeight;
     int meanWidth;
 	vector<Patch> patches;
+    RegionType rtype;
+
+    Region() {
+        meanHeight = 1;
+        meanWidth = 1;
+        rtype = R_NOTYPE;
+    }
 };
 
 /*
@@ -149,7 +173,7 @@ void findMeanHeightWidthForRegion(Region &region) {
 	// 0 check
 	if (count == 0) {
 		region.meanHeight = region.img.rows - 4;
-        region.meanWidth = region.img.cols - 4;
+        region.meanWidth = region.img.rows;
 	} else {
 		region.meanHeight = sum / count;
         region.meanWidth = sumW / count;
@@ -205,13 +229,13 @@ void drawCutLine(const Region &region, int index, const char *dirname) {
 	int end = 0;
 	for (int i = 0; i < region.img.cols - 1; ++ i) {
 		if(whiteCount[i] == 0 && whiteCount[i+1] > 0) {
-			start = i + 1;
+			start = i+1;
 		}
 		if(whiteCount[i] > 0 && whiteCount[i+1] == 0) {
-			end = i;
-			if ((end - start) > 2) {
+			end = i+1;
+			if ((end - start) > 3) {
 				// make sure the width can not be zero
-				region.patches.push_back(Patch(start, end, NOTYPE));
+				region.patches.push_back(Patch(start, end, P_NOTYPE));
 			}
 		}
 	}
@@ -253,10 +277,10 @@ vector<Patch> doReCut(const Region &region, const Patch patch, const int minCutP
 			e = i+1;
 			if ((e - s) > region.meanHeight * 5 / 4) {
 				vector<Patch> tmp = doReCut(region, 
-						Patch(s + patch.start, e + patch.start, NOTYPE), minCutPixes + 1);
+						Patch(s + patch.start, e + patch.start, P_NOTYPE), minCutPixes + 1);
 				v.insert(v.end(), tmp.begin(), tmp.end());
 			} else if ((e - s) > 2) {
-				v.push_back(Patch(s + patch.start, e + patch.start, NOTYPE));
+				v.push_back(Patch(s + patch.start, e + patch.start, P_NOTYPE));
 			}
 		}
 	}
@@ -294,6 +318,9 @@ void reCut(Region &region) {
  * 3. 长度和平均汉字长度比大于等于0.8
  */
 bool validChinesePatch(Patch patch, int standard) {
+    if (standard == 0) {
+        standard = 1;
+    }
 	float width = patch.end - patch.start;
 	float height = patch.bottom - patch.top;
 	
@@ -365,37 +392,48 @@ bool isSimilar(Patch patch1, Patch patch2) {
  *          c. 合并后的Patch不符合汉字的形状
  *          d. 两个将要合并的Patch非常相似，且高度小于平均高度，
  *              用来排除连续数字或者字母的情况
- *          e. 下一个Patch不是标点（根据长宽，位置，距离再下一个Patch的距离） 
+ *          e. 下一个要合并的Patch不是标点（根据长宽，位置，距离再下一个Patch的距离） 
  */
 void merge(Region &region) {
 	vector<Patch> newPatches;
 	int len = region.patches.size();
 	int i;
 	for (i = 0; i < len - 1; ++ i) {
+		bool canMerge = true;
+
 		Patch patch1 = region.patches[i];
 		Patch patch2 = region.patches[i + 1];
 
 		Patch tmpPatch = Patch(patch1.start, patch2.end, 
 				min(patch1.top, patch2.top), 
-				max(patch1.bottom, patch2.bottom), HANZI);
+				max(patch1.bottom, patch2.bottom), P_HANZI);
 
 		if (i + 2 < len) {
 			Patch patch3 = region.patches[i + 2];
 			Patch bigPatch = Patch(patch1.start, patch3.end, 
 					min(tmpPatch.top, patch3.top),
-					max(tmpPatch.bottom, patch3.bottom), HANZI);
+					max(tmpPatch.bottom, patch3.bottom), P_HANZI);
 			if (validChinesePatch(bigPatch, region.meanHeight)) {
 				newPatches.push_back(bigPatch);
 				i = i + 2;
 				continue;
 			}
+
+            // 如果i-1和i+2都是数字，那么我们可以是误将数字合并了
+            if (i > 0) {
+                Patch patch0 = region.patches[i-1];
+                if (!validChinesePatch(patch0, region.meanHeight) && 
+                    !validChinesePatch(patch3, region.meanHeight)) {
+                    canMerge = false;
+                }
+            }
 		}
 		
 		if (i + 3 < len) {
 			Patch patch4 = region.patches[i + 3];
 			Patch bigPatch = Patch(patch1.start, patch4.end, 
 					min(tmpPatch.top, patch4.top),
-					max(tmpPatch.bottom, patch4.bottom), HANZI);
+					max(tmpPatch.bottom, patch4.bottom), P_HANZI);
 			if (validChinesePatch(bigPatch, region.meanHeight)) {
 				newPatches.push_back(bigPatch);
 				i = i + 3;
@@ -403,12 +441,11 @@ void merge(Region &region) {
 			}
 		}
 
-		bool canMerge = true;
 		if ((patch2.start - patch1.end) >= MIN_MARGIN){
 			canMerge = false;
 		}
 		if (validChinesePatch(patch1, region.meanHeight)) {
-            patch1.ptype = HANZI;
+            patch1.ptype = P_HANZI;
 			canMerge = false;
 		}
 		if (!validChinesePatch(tmpPatch, region.meanHeight)) {
@@ -430,7 +467,6 @@ void merge(Region &region) {
 		if (!canMerge) {
 			newPatches.push_back(patch1);
 		} else {
-            tmpPatch.ptype = HANZI;
 			newPatches.push_back(tmpPatch);
 			++ i;
 		}
@@ -438,7 +474,7 @@ void merge(Region &region) {
 	if (i == len - 1) {
         Patch p = region.patches[i];
         if (validChinesePatch(p, region.meanHeight)) {
-            p.ptype = HANZI;
+            p.ptype = P_HANZI;
         }
 		newPatches.push_back(p);
 	}
@@ -447,28 +483,76 @@ void merge(Region &region) {
 }
 
 /*
- * 把细长型，如“目”，扁的，如“一”，这种字挑出来，表示为汉字
+ * 查找整个文本行的属性，全是英文的要拿去Tesseract中识别，噪音要去掉
+ */
+void findTextlineType(Region &region, int index) {
+    int count_chi = 0;
+    int count_eng = 0;
+    int len = region.patches.size();
+    for (int i = 0; i < len; ++ i) {
+        if (region.patches[i].ptype == P_HANZI) {
+            count_chi ++;
+        } else {
+            count_eng ++;
+        }
+    }
+    if (count_chi <= 1 && count_eng >= 2) {
+        region.rtype = R_ENG;
+    } else if (count_chi >= 1) {
+        region.rtype = R_HANZI;
+    } else {
+        region.rtype = R_NOISE;
+    }
+
+    cout << index;
+    cout << "\t" << count_chi;
+    cout << "\t" << count_eng;
+    cout << "\t" << region.meanHeight;
+    cout << "\t" << region.rtype << endl;
+}
+
+
+/*
+ * 1. 把Patch归类
+ * 2. 把细长型，如“目”，扁的，如“一”，这种字挑出来，表示为汉字
+ *      但是必须左边或者右边至少有一个是中文才行，同时考虑开头和结尾的特殊情况
  */
  void findPatchType(Region &region, int index) {
     int standardH = region.meanHeight;
     int standardW = region.meanWidth;
     int len = region.patches.size();
-    for (int i = 1; i < len-1; ++ i) {
-        Patch patch1 = region.patches[i-1];
-        Patch patch2 = region.patches[i];
-        Patch patch3 = region.patches[i+1];
-        if (patch2.ptype == HANZI) {
+    for (int i = 0; i < len; ++ i) {
+        Patch patch1, patch2, patch3;
+        if (i != 0) {
+            patch1 = region.patches[i-1];
+        }
+        if (i != len -1){
+            patch3 = region.patches[i+1];
+        }
+        patch2 = region.patches[i];
+        if (patch2.ptype == P_HANZI) {
             continue;
         }
         float height = patch2.bottom - patch2.top;
         float width = patch2.end - patch2.start;
 	    float ratiow = (width < standardW) ? width / standardW : standardW / width;
 	    float ratioh = (height < standardH) ? height / standardH : standardH / height;
-        if ((ratiow > 0.8 || (ratioh > 0.8 && ratiow > 0.5)) && (patch1.ptype == HANZI || patch3.ptype == HANZI)) {
-            region.patches[i].ptype = HANZI;
+        bool valid = false;
+        if (i == 0 && patch3.ptype == P_HANZI) {
+            valid = true;
+        } 
+        if (i == (len - 1) && patch1.ptype == P_HANZI) {
+            valid = true;
+        }
+        if (i != 0 && i != len - 1 && (patch1.ptype == P_HANZI || patch3.ptype == P_HANZI)) {
+            valid = true;
+        }
+        if (valid && ((ratiow > 0.85 && ratioh < 0.5) || (ratioh > 0.85 && ratiow > 0.6))) {
+            region.patches[i].ptype = P_HANZI;
         } 
     }
 }
+
 
 /*
  * 把第i行切分好的图片，存成dirname下的一个个小图片
@@ -507,12 +591,66 @@ void saveTextLines(Region &region, int index, const char dirname[]) {
 }
 
 /*
+ * 由于英文分类器做的不好，所以把长的英文提取出来，让tessearact识别
+ * 注意，这里的逻辑是，假设ptype只有0和1两种，即NOTYPE和CHI两种的情况
+ */
+void findEnglishText(Region &region, int index) {
+    vector<Patch> newPatches;
+    int len = region.patches.size();
+    if (len <= 0) {
+        return;
+    }
+    int engCount = 0;
+    for (int i = 0; i < len; ++ i) {
+        // 若连续的0出现超过三次，认为是长英文文本 
+        if (region.patches[i].ptype == P_NOTYPE) {
+            engCount ++;
+        } else {
+            if (engCount >= 3) {
+                for (int j = 0; j < engCount; ++ j) {
+                    region.patches[i-j-1].ptype = P_ENG;
+                }
+                Patch tmpPatch = Patch(region.patches[i-engCount].start, 
+                                       region.patches[i-1].end, 0, 100, P_ENG);
+                newPatches.push_back(tmpPatch);
+                newPatches.push_back(region.patches[i]);
+            } else {
+                for (int j = 0; j < engCount; ++ j) {
+                    newPatches.push_back(region.patches[i-j-1]);
+                }
+                newPatches.push_back(region.patches[i]);
+            }
+            engCount = 0;
+        }
+    }
+    // 处理最后一个字符
+    if (region.patches[len-1].ptype == P_NOTYPE) {
+        if (engCount >= 3) {
+            for (int j = 0; j < engCount; ++ j) {
+                region.patches[len-j-1].ptype = P_ENG;
+            }
+            int start = region.patches[len-engCount].start;
+            int end = region.patches[len-1].end;
+            Patch tmpPatch = Patch(start, end, 0, 100, P_ENG);
+            newPatches.push_back(tmpPatch);
+        } else {
+            for (int j = 0; j < engCount; ++ j) {
+                newPatches.push_back(region.patches[len-1-j]);
+            }
+        }
+    } 
+
+    newPatches.swap(region.patches);
+}
+
+
+/*
  * 将Region的信息存到一个文件里去，方便让Python读取并识别
  */
 void saveRegionToFile(Region &region, int index, const char filename[] ) {
     ofstream out;
     out.open(filename, ios::app);
-    out << index << endl;
+    out << index << " " << region.meanHeight << endl;
     int len = region.patches.size();
     for (int i = 0; i < len; ++ i) {
         Patch patch = region.patches[i]; 
