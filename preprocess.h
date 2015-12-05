@@ -8,9 +8,10 @@
 #ifndef PRE_PROCESS_H
 #define PRE_PROCESS_H
 
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
+#include<opencv2/highgui/highgui.hpp>
+#include<opencv2/imgproc/imgproc.hpp>
 #include<iostream>
+#include<cstdio>
 using namespace std;
 
 /*
@@ -35,8 +36,9 @@ public:
 private:
 	cv::Mat morphologyProcess(const cv::Mat &);
 	cv::Mat morphologyProcess2(const cv::Mat &);
-	cv::Mat getROI(cv::Mat, cv::RotatedRect); 
+	cv::Mat getROI(const cv::Mat &, cv::RotatedRect); 
 	vector<cv::RotatedRect> findRotatedRects(cv::Mat, int);
+    cv::Mat eliminateVerLine(); 
 	void rotatedRectsFilter(vector<cv::RotatedRect> &);
 	void reFindRotatedRects();
 	void extractTextLines();
@@ -68,12 +70,35 @@ PreImageProcessor::PreImageProcessor(cv::Mat gray) {
  * 全部预处理步骤
  */
 void PreImageProcessor::init() {
+	//mRotatedRects = findRotatedRects(eliminateVerLine(), MODE_LONG);
 	mRotatedRects = findRotatedRects(mGrayImage, MODE_LONG);
 	calcMeanImageHeight();
 	reFindRotatedRects();
 	extractTextLines();
 	generateCleanImage();
-//	drawRectangles(mGrayImage, mRotatedRects);
+}
+
+/*
+ * 去掉竖直的表格线，形态学方法，已没啥用，保留代码供参考
+ */
+cv::Mat PreImageProcessor::eliminateVerLine() {
+    cv::Mat closing, erosion, blur, adaptive, erosion2, vertical, opening;
+    cv::Mat element1, element2, element3, element4;
+	element1 = getStructuringElement(cv::MORPH_RECT, cv::Size(1, 100));
+	element2 = getStructuringElement(cv::MORPH_RECT, cv::Size(1, 3));
+	element3 = getStructuringElement(cv::MORPH_RECT, cv::Size(3, 1));
+	element4 = getStructuringElement(cv::MORPH_RECT, cv::Size(13, 1));
+
+    cv::morphologyEx(mGrayImage, closing, cv::MORPH_CLOSE, element1);
+    cv::erode(closing, erosion, element2, cv::Point(-1, -1), 1);
+	cv::GaussianBlur(erosion, blur, cv::Size(5, 5), 0, 0);
+    cv::adaptiveThreshold(blur, adaptive, 255, CV_ADAPTIVE_THRESH_GAUSSIAN_C, CV_THRESH_BINARY, 11, 15);
+    cv::erode(adaptive, erosion2, element3, cv::Point(-1, -1), 3);
+
+    vertical = mGrayImage | ~erosion2;
+    cv::morphologyEx(vertical, opening, cv::MORPH_OPEN, element4);
+    //cv::imwrite("opening.png", opening);
+    return opening;
 }
 
 
@@ -82,6 +107,8 @@ void PreImageProcessor::init() {
  *		1. 调整偏转角度（因为有些可能是负值，长宽需要对调）
  *		2. 增加矩形的边缘margin
  *		3. 筛选长宽比不正常的矩形
+ *		4. 由于倾斜，可能会造成找到的矩形边框超过原图，
+ *		    所以有四个if来检测
  */
 void PreImageProcessor::rotatedRectsFilter(vector<cv::RotatedRect> &origin) {
 	vector<cv::RotatedRect> v;
@@ -94,6 +121,20 @@ void PreImageProcessor::rotatedRectsFilter(vector<cv::RotatedRect> &origin) {
 			rRect.angle += 90;
 			swap(rRect.size.width, rRect.size.height);
 		}
+
+        if (rRect.center.x < rRect.size.width / 2) {
+            rRect.size.width = rRect.center.x * 2 - 30;
+        }
+        if ((rRect.center.x + rRect.size.width / 2) > mGrayImage.cols) {
+            rRect.size.width = (mGrayImage.cols - rRect.center.x - 30) * 2; 
+        }
+        if (rRect.center.y < rRect.size.height / 2) {
+            rRect.size.height = rRect.center.y * 2 - 30;
+        }
+        if ((rRect.center.y + rRect.size.height / 2) > mGrayImage.rows) {
+            rRect.size.height = (mGrayImage.rows - rRect.center.y - 30) * 2;
+        }
+
 		if(rRect.size.width > rRect.size.height * 3 / 2) {
 			v.push_back(rRect);			
 		}
@@ -110,20 +151,30 @@ void PreImageProcessor::rotatedRectsFilter(vector<cv::RotatedRect> &origin) {
  */
 cv::Mat PreImageProcessor::morphologyProcess(const cv::Mat &gray) {
 	cv::Mat sobel, blur, binary, dilation, erosion, closing;
-	cv::Mat element1, element2, kernel;
+	cv::Mat element1, element2, element3, kernel;
 
-	element1 = getStructuringElement(cv::MORPH_RECT, cv::Size(20, 1));
-	element2 = getStructuringElement(cv::MORPH_RECT, cv::Size(28, 3));
+	element1 = getStructuringElement(cv::MORPH_RECT, cv::Size(28, 3));
+	element2 = getStructuringElement(cv::MORPH_RECT, cv::Size(20, 1));
+	element3 = getStructuringElement(cv::MORPH_RECT, cv::Size(28, 3));
 	kernel = getStructuringElement(cv::MORPH_RECT, cv::Size(12, 1));
 
 	cv::Sobel(gray, sobel, CV_8U, 1, 0, 1, 1, 0);
 	cv::GaussianBlur(sobel, blur, cv::Size(5, 5), 0, 0);
 	cv::threshold(blur, binary, 0, 255, CV_THRESH_OTSU+CV_THRESH_BINARY);
 
-	cv::dilate(binary, dilation, element2, cv::Point(-1, -1), 1);
-	cv::erode(dilation, erosion, element1, cv::Point(-1, -1), 2);
-	cv::dilate(erosion, dilation, element2, cv::Point(-1, -1), 3);
+    //cv::imwrite("sobel.png", sobel);
+    //cv::imwrite("blur.png", blur);
+    //cv::imwrite("binary.png", binary);
+	cv::dilate(binary, dilation, element1, cv::Point(-1, -1), 1);
+    //cv::imwrite("dilation1.png", dilation);
+
+	cv::erode(dilation, erosion, element2, cv::Point(-1, -1), 2);
+	cv::dilate(erosion, dilation, element3, cv::Point(-1, -1), 3);
 	cv::morphologyEx(dilation, closing, cv::MORPH_CLOSE, kernel);
+
+    //cv::imwrite("erosion.png", erosion);
+    //cv::imwrite("dilation2.png", dilation);
+    //cv::imwrite("close.png", closing);
 
 	return closing;
 }
@@ -185,7 +236,13 @@ vector<cv::RotatedRect> PreImageProcessor::findRotatedRects(cv::Mat img, int mod
 	}
 	rotatedRectsFilter(rotatedRects);
 
-	return rotatedRects;
+    // 排列顺序改一下
+    vector<cv::RotatedRect> tmp;
+    len = rotatedRects.size();
+    for (int i = 0; i < len; ++ i) {
+        tmp.push_back(rotatedRects[len-1-i]); 
+    }
+	return tmp;
 }
 
 
@@ -213,7 +270,7 @@ void PreImageProcessor::translateRotatedRect(vector<cv::RotatedRect> &v, cv::Rot
 	}
 }
 
-cv::Mat PreImageProcessor::getROI(cv::Mat gray, cv::RotatedRect rotate) {
+cv::Mat PreImageProcessor::getROI(const cv::Mat &gray, cv::RotatedRect rotate) {
 	cv::Mat src = gray.clone();
 	cv::Mat roi;
 	cv::Rect rect = rotate.boundingRect();
@@ -236,7 +293,6 @@ cv::Mat PreImageProcessor::getROI(cv::Mat gray, cv::RotatedRect rotate) {
 			}
 		}
 	}
-	//cv::imwrite("roi.png", roi);
 	return roi;
 }
 
@@ -287,8 +343,8 @@ void PreImageProcessor::extractTextLines() {
 
 		mTextLines.push_back(adaptive);
 
-		char name[16];
-		sprintf(name, "./textLine/%d.png", i);
+		char name[128];
+		sprintf(name, "./tempFiles/textLine/%d.png", i);
 		cv::imwrite(name, adaptive);
 	}
 }
@@ -319,8 +375,7 @@ void PreImageProcessor::generateCleanImage() {
 		cv::Mat roi = mCleanImage(rect);
 		mTextLines[i].copyTo(roi);
 	}
-
-    //cv::imwrite("newImage.png", mCleanImage);
+    cv::imwrite("newImage.png", mCleanImage);
 }
 
 
@@ -335,10 +390,10 @@ void PreImageProcessor::drawRectangles(cv::Mat src, const vector<cv::RotatedRect
 		rotatedRects[i].points(vertices);
 
 		for (int j = 0; j < 4; ++ j) {
-			line(img, vertices[j], vertices[(j+1) % 4], cv::Scalar(0, 255, 0), 3, 8);
+			line(img, vertices[j], vertices[(j+1) % 4], cv::Scalar(0, 255, 0), 2, 8);
 		}
 	}
-	//cv::imwrite("region.png", img);
+	cv::imwrite("rotatedRects.png", img);
 }
 
 
@@ -349,14 +404,14 @@ void PreImageProcessor::drawRectangles(cv::Mat src, const vector<cv::Rect> &rect
 	cv::Mat img = src.clone();
 	int len = rects.size();
 	for (int i = 0; i < len; ++ i) {
-		char text[16];
+		char text[128];
 		sprintf(text, "%d", len - i - 1);
 		putText(img, text, cv::Point(rects[i].x - 50, rects[i].y + 40),
 				CV_FONT_HERSHEY_COMPLEX, 1, cv::Scalar(0, 255, 0));
 
 		rectangle(img, rects[i].tl(), rects[i].br(), cv::Scalar(0, 255, 0), 2, 8, 0);
 	}
-	//cv::imwrite("region.png", img);
+	cv::imwrite("rects.png", img);
 }
 
 vector<cv::RotatedRect> PreImageProcessor::getRotatedRects() {

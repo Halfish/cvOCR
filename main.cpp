@@ -5,7 +5,6 @@
 	> Created Time: 2015年10月08日 星期四 15时14分01秒
  ************************************************************************/
 
-#include "tesstool.h"
 #include "preprocess.h"
 #include "cut.h"
 #include <iostream>
@@ -19,8 +18,6 @@ using namespace std;
  * 重切分（recut），合并（merge）
  */
 
-const char *lang = "cv";
-
 void preprocessImage(char *filename) {
 	cv::Mat img = cv::imread(filename);
 	cv::Mat gray;
@@ -31,26 +28,24 @@ void preprocessImage(char *filename) {
     
     vector<cv::Mat> textLines = pip->getTextLines();
     vector<cv::RotatedRect> rotatedRects = pip->getRotatedRects();
-    pip->drawRectangles(pip->getGrayImage(), pip->getRotatedRects());
+    pip->drawRectangles(img, pip->getRotatedRects());
 
     // 创建和清空文本
     fstream out("region.txt", ios::out);
     out.close();
     int len = textLines.size();
     char myfile[16];
-    cout << "序号\t汉字数\t英文数\t高度\t类型" << endl;
+    //cout << "序号\t汉字数\t英文数\t高度\t类型" << endl;
     for (int i = 0; i < len; ++ i) {
         Region region = cut(textLines[i]);
-        drawCutLine(region, i, "cut");
+        drawCutLine(region, i, "./tempFiles/cut");
         reCut(region);
-        drawCutLine(region, i, "recut");
+        drawCutLine(region, i, "./tempFiles/recut");
         merge(region);
-        drawCutLine(region, i, "merge");
-
+        drawCutLine(region, i, "./tempFiles/merge");
         findTextlineType(region, i);
         findPatchType(region, i);
         findEnglishText(region, i);
-        drawCutLine(region, i, "eng");
         saveRegionToFile(region, i, "region.txt");
     }
 

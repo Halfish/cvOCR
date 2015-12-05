@@ -204,7 +204,7 @@ void drawCutLine(const Region &region, int index, const char *dirname) {
 		cv::Point endPoint = cv::Point(region.patches[i].end, region.patches[i].top);
 		rectangle(img, startPoint, endPoint, cv::Scalar(0, 255, 0), 1, 8, 0);
 	}
-	char filename[16];
+	char filename[256];
 	sprintf(filename, "./%s/%d.png", dirname, index);
 	cv::imwrite(filename, img);
 }
@@ -317,38 +317,37 @@ void reCut(Region &region) {
  * 2. 宽度和平均汉字高度比大于等于0.8
  * 3. 长度和平均汉字长度比大于等于0.8
  */
-bool validChinesePatch(Patch patch, int standard) {
-    if (standard == 0) {
-        standard = 1;
-    }
+bool validChinesePatch(Patch patch, int standardH, int standardW) {
 	float width = patch.end - patch.start;
 	float height = patch.bottom - patch.top;
 	
 	float ratio = (width < height) ? width / height : height / width;
-	float ratiow = (width < standard) ? width / standard : standard / width;
-	float ratioh = (height < standard) ? height / standard : standard / height;
+	float ratiow = (width < standardW) ? width / standardW : standardW / width;
+	float ratioh = (height < standardH) ? height / standardH : standardH / height;
 	
-	if (ratio >= 0.83 && ratioh >= 0.8 && ratiow >= 0.8) {
-		/*
+	if (ratio >= 0.83 && ratioh >= 0.85 && ratiow >= 0.85) {
+        /*
 		cout << endl << "valid" << endl;
 		cout << "patch width = " << width << " height = " << height << endl;
-		cout << "standard is " << standard << endl;
+		cout << "standardH is " << standardH << endl;
+		cout << "standardW is " << standardW << endl;
 		cout << "width / height is " << ratio << endl;
-		cout << "width / standard is " << ratio1 << endl;
-		cout << "height / standard is " << ratio2 << endl;
+		cout << "width / standardW is " << ratiow << endl;
+		cout << "height / standardH is " << ratioh << endl;
 		cout << "valid" << endl << endl;
-		*/
+        */
 		return true;
 	}
-	/*
+    /*
 	cout << endl << "not valid" << endl;
-	cout << "patch width = " << width << " height = " << height << endl;
-	cout << "standard is " << standard << endl;
-	cout << "width / height is " << ratio << endl;
-	cout << "width / standard is " << ratio1 << endl;
-	cout << "height / standard is " << ratio2 << endl;
+    cout << "standardH is " << standardH << endl;
+    cout << "standardW is " << standardW << endl;
+    cout << "width / height is " << ratio << endl;
+    cout << "width / standardW is " << ratiow << endl;
+    cout << "height / standardH is " << ratioh << endl;
 	cout << "not valid" << endl << endl;
-	*/
+    */
+
 	return false;
 }
 
@@ -413,7 +412,7 @@ void merge(Region &region) {
 			Patch bigPatch = Patch(patch1.start, patch3.end, 
 					min(tmpPatch.top, patch3.top),
 					max(tmpPatch.bottom, patch3.bottom), P_HANZI);
-			if (validChinesePatch(bigPatch, region.meanHeight)) {
+			if (validChinesePatch(bigPatch, region.meanHeight, region.meanWidth)) {
 				newPatches.push_back(bigPatch);
 				i = i + 2;
 				continue;
@@ -422,8 +421,8 @@ void merge(Region &region) {
             // 如果i-1和i+2都是数字，那么我们可以是误将数字合并了
             if (i > 0) {
                 Patch patch0 = region.patches[i-1];
-                if (!validChinesePatch(patch0, region.meanHeight) && 
-                    !validChinesePatch(patch3, region.meanHeight)) {
+                if (!validChinesePatch(patch0, region.meanHeight, region.meanWidth) && 
+                    !validChinesePatch(patch3, region.meanHeight, region.meanWidth)) {
                     canMerge = false;
                 }
             }
@@ -434,21 +433,32 @@ void merge(Region &region) {
 			Patch bigPatch = Patch(patch1.start, patch4.end, 
 					min(tmpPatch.top, patch4.top),
 					max(tmpPatch.bottom, patch4.bottom), P_HANZI);
-			if (validChinesePatch(bigPatch, region.meanHeight)) {
+			if (validChinesePatch(bigPatch, region.meanHeight, region.meanWidth)) {
 				newPatches.push_back(bigPatch);
 				i = i + 3;
 				continue;
 			}
 		}
+        if (i + 4 < len) {
+            Patch patch5 = region.patches[i + 4];
+            Patch bigPatch = Patch(patch1.start, patch5.end, 
+                    min(tmpPatch.top, patch5.top),
+                    max(tmpPatch.bottom, patch5.bottom), P_HANZI);
+            if (validChinesePatch(bigPatch, region.meanHeight, region.meanWidth)) {
+                newPatches.push_back(bigPatch);
+                i = i + 4;
+                continue;
+            }
+        }
 
 		if ((patch2.start - patch1.end) >= MIN_MARGIN){
 			canMerge = false;
 		}
-		if (validChinesePatch(patch1, region.meanHeight)) {
+		if (validChinesePatch(patch1, region.meanHeight, region.meanWidth)) {
             patch1.ptype = P_HANZI;
 			canMerge = false;
 		}
-		if (!validChinesePatch(tmpPatch, region.meanHeight)) {
+		if (!validChinesePatch(tmpPatch, region.meanHeight, region.meanWidth)) {
 			canMerge = false;
 		} 
 		if (isSimilar(patch1, patch2) 
@@ -473,7 +483,7 @@ void merge(Region &region) {
 	}
 	if (i == len - 1) {
         Patch p = region.patches[i];
-        if (validChinesePatch(p, region.meanHeight)) {
+        if (validChinesePatch(p, region.meanHeight, region.meanWidth)) {
             p.ptype = P_HANZI;
         }
 		newPatches.push_back(p);
@@ -504,11 +514,32 @@ void findTextlineType(Region &region, int index) {
         region.rtype = R_NOISE;
     }
 
+    /*
     cout << index;
     cout << "\t" << count_chi;
     cout << "\t" << count_eng;
     cout << "\t" << region.meanHeight;
     cout << "\t" << region.rtype << endl;
+    */
+
+    int count_thin = 0;
+    // 文字的高度
+    int standard = (region.img.rows + region.meanHeight) / 2;
+    for (int i = 0; i < len; ++ i) {
+        Patch patch = region.patches[i];
+        int width = patch.end - patch.start;
+        float height = patch.bottom - patch.top;
+        if ((width / height < 0.8) && (width * 2 > standard)) {
+            count_thin ++;
+        }
+    }
+    if ((count_thin > count_chi) && (count_thin >= 3)) {
+        region.rtype = R_ENG;
+        Patch patch(0, region.img.cols, 0, region.img.rows, P_ENG);
+        vector<Patch> newPatches;
+        newPatches.push_back(patch);
+        newPatches.swap(region.patches);
+    }
 }
 
 
@@ -521,6 +552,7 @@ void findTextlineType(Region &region, int index) {
     int standardH = region.meanHeight;
     int standardW = region.meanWidth;
     int len = region.patches.size();
+    int count = 0;      //一行不能执行三次这样的操作
     for (int i = 0; i < len; ++ i) {
         Patch patch1, patch2, patch3;
         if (i != 0) {
@@ -547,8 +579,9 @@ void findTextlineType(Region &region, int index) {
         if (i != 0 && i != len - 1 && (patch1.ptype == P_HANZI || patch3.ptype == P_HANZI)) {
             valid = true;
         }
-        if (valid && ((ratiow > 0.85 && ratioh < 0.5) || (ratioh > 0.85 && ratiow > 0.6))) {
+        if (count < 3 && valid && ((ratiow > 0.85 && ratioh < 0.5) || (ratioh > 0.85 && ratiow > 0.6))) {
             region.patches[i].ptype = P_HANZI;
+            count ++;
         } 
     }
 }
@@ -573,7 +606,7 @@ void saveTextLines(Region &region, int index, const char dirname[]) {
     int count = 0;
     for (int i = 0; i < len; ++ i) {
         Patch patch = region.patches[i];
-        if (!validChinesePatch(patch, region.meanHeight)) {
+        if (!validChinesePatch(patch, region.meanHeight, region.meanWidth)) {
            continue; 
         }
         cv::Rect rect(patch.start, patch.top, 
@@ -616,7 +649,7 @@ void findEnglishText(Region &region, int index) {
                 newPatches.push_back(region.patches[i]);
             } else {
                 for (int j = 0; j < engCount; ++ j) {
-                    newPatches.push_back(region.patches[i-j-1]);
+                    newPatches.push_back(region.patches[i-engCount+j]);
                 }
                 newPatches.push_back(region.patches[i]);
             }
@@ -635,7 +668,7 @@ void findEnglishText(Region &region, int index) {
             newPatches.push_back(tmpPatch);
         } else {
             for (int j = 0; j < engCount; ++ j) {
-                newPatches.push_back(region.patches[len-1-j]);
+                newPatches.push_back(region.patches[len-engCount+j]);
             }
         }
     } 
@@ -646,6 +679,13 @@ void findEnglishText(Region &region, int index) {
 
 /*
  * 将Region的信息存到一个文件里去，方便让Python读取并识别
+ * region.txt的格式如下：
+ * 序列号 textline的高度
+ * patch1 的start, top, end, bottom坐标，类型
+ * patchn 的start...
+ *  类型有，0表示未分类，会用英文分类器
+ *          1表示为汉字，会用中文分类器
+ *          2表示英文，会用Tesseract
  */
 void saveRegionToFile(Region &region, int index, const char filename[] ) {
     ofstream out;
@@ -656,6 +696,13 @@ void saveRegionToFile(Region &region, int index, const char filename[] ) {
         Patch patch = region.patches[i]; 
         out << patch.start << " " << patch.top << " ";
         out << patch.end << " " << patch.bottom << " ";
+        /*
+        float width = patch.end - patch.start;
+        float height = patch.bottom - patch.top;
+        out << "width = " << patch.end - patch.start << " ";
+        out << "height = " << patch.bottom - patch.top << " ";
+        out << "ratio = " << width / height << " ";
+        */
         out << patch.ptype<< endl;
     }
     out << endl;
