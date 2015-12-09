@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>iPin OCR System</title>
+        <meta charset="utf-8"/>
+        <style>
+            #allContent {
+                width: 1500px;
+                margin: 0 auto;
+                text-align: center;
+            }
+            #allContent h1 {
+                margin: 40px 0;
+            }
+            #allContent div#left {
+                width: 46%;
+                float: left;
+                border-right: solid #000 1px;
+            }
+            #allContent div#right {
+                width: 53%;
+                float: right;
+            }
+            #allContent div#right p {
+                text-align: left;
+                margin: 10px 20px 10px 20px;
+                line-height: 12px;
+            }
+            #allContent div#left img {
+                width: 650px;
+                margin: 20px auto;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div id="allContent">
+            <h1>iPIN OCR System</h1>
+            <div>
+                <div id="left">
+                    <form id="form1" action="/" enctype="multipart/form-data" method="POST">
+                        <input type="file" name="file">
+                        <input type="submit" value="upload" />
+                    </form>
+                    <img src={{src}} id="img" />
+                </div>
+                <div id="right">
+                    <form id="form2" action="/reco" method="GET">
+                        <input type="submit" value="Recognize" />
+                    </form>
+                    {% for text in recoText %}
+                        <p>{{text}}</p>
+                    {% end %}
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

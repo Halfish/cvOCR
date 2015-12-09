@@ -40,7 +40,6 @@ def load_data():
 
 
 def build_model_eng():
-    print('building model')
     #生成一个model
     model = Sequential()
 
@@ -80,12 +79,10 @@ def build_model_eng():
     #model.compile里的参数loss就是损失函数(目标函数)
     sgd = SGD(l2=0.0,lr=0.01, decay=5e-6, momentum=0.9, nesterov=True)
     model.compile(loss='categorical_crossentropy', optimizer=sgd,class_mode="categorical")
-    print('compile finished')
 
     return model
 
 def build_model_chi():
-    print('building model')
     #生成一个model
     model = Sequential()
 
@@ -125,7 +122,6 @@ def build_model_chi():
     #model.compile里的参数loss就是损失函数(目标函数)
     sgd = SGD(l2=0.0,lr=0.01, decay=5e-5, momentum=0.9, nesterov=True)
     model.compile(loss='categorical_crossentropy', optimizer=sgd,class_mode="categorical")
-    print('compile finished')
 
     return model
 
@@ -136,7 +132,6 @@ def training():
     #validation_split=0.2，将20%的数据作为验证集。
     model = build_model_eng()
     model.fit(data, label, batch_size=100, nb_epoch=100,shuffle=True,verbose=1,show_accuracy=True,validation_split=0.2)
-    print('fit finished')
     model.save_weights('model.h5', True)
 
 if __name__ == '__main__':
