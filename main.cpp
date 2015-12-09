@@ -28,6 +28,7 @@ void preprocessImage(char *filename) {
     
     vector<cv::Mat> textLines = pip->getTextLines();
     vector<cv::RotatedRect> rotatedRects = pip->getRotatedRects();
+    vector<pair<int, int> > tlIndex = pip->getTextLineIndex();
     pip->drawRectangles(img, pip->getRotatedRects());
 
     // 创建和清空文本
@@ -46,7 +47,7 @@ void preprocessImage(char *filename) {
         findTextlineType(region, i);
         findPatchType(region, i);
         findEnglishText(region, i);
-        saveRegionToFile(region, i, "region.txt");
+        saveRegionToFile(region, i, "region.txt", tlIndex[i].first, tlIndex[i].second);
     }
 
     pip->generateCleanImage();

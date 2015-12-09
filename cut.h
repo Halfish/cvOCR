@@ -687,10 +687,11 @@ void findEnglishText(Region &region, int index) {
  *          1表示为汉字，会用中文分类器
  *          2表示英文，会用Tesseract
  */
-void saveRegionToFile(Region &region, int index, const char filename[] ) {
+void saveRegionToFile(Region &region, int index, const char filename[], int rowIndex, int colIndex) {
     ofstream out;
     out.open(filename, ios::app);
-    out << index << " " << region.meanHeight << endl;
+    out << index << " " << region.meanHeight;
+    out << " " << rowIndex << " " << colIndex << endl; 
     int len = region.patches.size();
     for (int i = 0; i < len; ++ i) {
         Patch patch = region.patches[i]; 

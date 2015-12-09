@@ -17,7 +17,6 @@ using namespace std;
 /*
  * 图片预处理类
  */
-
 class PreImageProcessor {
 
 public:
@@ -29,6 +28,8 @@ public:
     int getMeanImageHeight();
     cv::Mat getGrayImage();
     cv::Mat getCleanImage();
+    vector<pair<int, int> > getTextLineIndex();
+
 	void drawRectangles(cv::Mat, const vector<cv::RotatedRect> &);
 	void drawRectangles(cv::Mat, const vector<cv::Rect> &);
 	void generateCleanImage();
@@ -41,6 +42,7 @@ private:
     cv::Mat eliminateVerLine(); 
 	void rotatedRectsFilter(vector<cv::RotatedRect> &);
 	void reFindRotatedRects();
+    void reArrangeRotatedRects();
 	void extractTextLines();
 	void calcMeanImageHeight();
 	void translateRotatedRect(vector<cv::RotatedRect> &, cv::RotatedRect); 
@@ -52,6 +54,7 @@ private:
 
 	vector<cv::RotatedRect> mRotatedRects;	
 	vector<cv::Mat> mTextLines;
+    vector<pair<int, int> > mTLIndex; // textLineIndex; (rowIndex, colIndex)
 	int mMeanImageHeight;
 	cv::Mat mGrayImage;
 	cv::Mat mCleanImage;
@@ -74,6 +77,7 @@ void PreImageProcessor::init() {
 	mRotatedRects = findRotatedRects(mGrayImage, MODE_LONG);
 	calcMeanImageHeight();
 	reFindRotatedRects();
+    reArrangeRotatedRects();
 	extractTextLines();
 	generateCleanImage();
 }
@@ -161,17 +165,15 @@ cv::Mat PreImageProcessor::morphologyProcess(const cv::Mat &gray) {
 	cv::Sobel(gray, sobel, CV_8U, 1, 0, 1, 1, 0);
 	cv::GaussianBlur(sobel, blur, cv::Size(5, 5), 0, 0);
 	cv::threshold(blur, binary, 0, 255, CV_THRESH_OTSU+CV_THRESH_BINARY);
-
-    //cv::imwrite("sobel.png", sobel);
-    //cv::imwrite("blur.png", blur);
-    //cv::imwrite("binary.png", binary);
 	cv::dilate(binary, dilation, element1, cv::Point(-1, -1), 1);
-    //cv::imwrite("dilation1.png", dilation);
-
 	cv::erode(dilation, erosion, element2, cv::Point(-1, -1), 2);
 	cv::dilate(erosion, dilation, element3, cv::Point(-1, -1), 3);
 	cv::morphologyEx(dilation, closing, cv::MORPH_CLOSE, kernel);
 
+    //cv::imwrite("sobel.png", sobel);
+    //cv::imwrite("blur.png", blur);
+    //cv::imwrite("dilation1.png", dilation);
+    //cv::imwrite("binary.png", binary);
     //cv::imwrite("erosion.png", erosion);
     //cv::imwrite("dilation2.png", dilation);
     //cv::imwrite("close.png", closing);
@@ -235,14 +237,7 @@ vector<cv::RotatedRect> PreImageProcessor::findRotatedRects(cv::Mat img, int mod
 		}
 	}
 	rotatedRectsFilter(rotatedRects);
-
-    // 排列顺序改一下
-    vector<cv::RotatedRect> tmp;
-    len = rotatedRects.size();
-    for (int i = 0; i < len; ++ i) {
-        tmp.push_back(rotatedRects[len-1-i]); 
-    }
-	return tmp;
+	return rotatedRects;
 }
 
 
@@ -296,6 +291,9 @@ cv::Mat PreImageProcessor::getROI(const cv::Mat &gray, cv::RotatedRect rotate) {
 	return roi;
 }
 
+/*
+ * description: 重新查找倾斜矩阵，主要是为了处理两行文字误合并到了一起的情况；
+ */
 void PreImageProcessor::reFindRotatedRects() {
 	vector<cv::RotatedRect> newRotatedRects;
 	int len = mRotatedRects.size();
@@ -312,6 +310,57 @@ void PreImageProcessor::reFindRotatedRects() {
 	}
 	rotatedRectsFilter(newRotatedRects);
 	newRotatedRects.swap(mRotatedRects);
+}
+
+
+bool cmp(cv::RotatedRect rect1, cv::RotatedRect rect2) {
+    return rect1.center.y < rect2.center.y;
+}
+
+/*
+ * description: 根据位置重新排列，以及合并rotatedRects
+ */
+void PreImageProcessor::reArrangeRotatedRects() {
+    int len = mRotatedRects.size();
+    sort(mRotatedRects.begin(), mRotatedRects.end(), cmp);
+
+    int rowIndex = 0, colIndex = 0;
+    mTLIndex.push_back(make_pair(rowIndex, colIndex));
+    for (int i = 1; i < len; ++ i) {
+        cv::RotatedRect rRect1 = mRotatedRects[i-1];
+        cv::RotatedRect rRect2 = mRotatedRects[i];
+        //cout << "i = " << i << endl;
+        //cout << "\twidth = " << rRect.size.width << endl;
+        //cout << "\theight = " << rRect2.size.height << endl;
+        //cout << "\tx = " << rRect2.center.x << endl;
+        //cout << "\ty = " << rRect2.center.y << endl;
+        //cout << "\tangle = " << rRect.angle << endl;
+        if ((rRect2.center.y - rRect1.center.y) < (rRect1.size.height + rRect2.size.height) / 6) {
+            colIndex ++;
+        } else {
+            rowIndex ++;
+            colIndex = 0;
+        }
+        mTLIndex.push_back(make_pair(rowIndex, colIndex));
+    }
+
+    // 排序
+    for (int i = 0; i < len; ++ i) {
+        int rowIndexi = mTLIndex[i].first;
+        int colIndexi = mTLIndex[i].second;
+        for (int j = i + 1; j < len; ++ j) {
+            int rowIndexj = mTLIndex[j].first;
+            int colIndexj = mTLIndex[j].second;
+            if (rowIndexi != rowIndexj) {
+                break;
+            }
+            if (mRotatedRects[i].center.x > mRotatedRects[j].center.x) {
+                cv::RotatedRect tmp = mRotatedRects[i];
+                mRotatedRects[i] = mRotatedRects[j];
+                mRotatedRects[j] = tmp;
+            }
+        }
+    }
 }
 
 
@@ -432,6 +481,10 @@ cv::Mat PreImageProcessor::getGrayImage() {
 
 cv::Mat PreImageProcessor::getCleanImage() {
     return mCleanImage;
+}
+
+vector<pair<int, int> > PreImageProcessor::getTextLineIndex() {
+    return mTLIndex;
 }
 
 #endif
