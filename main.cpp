@@ -44,13 +44,12 @@ void preprocessImage(char *filename) {
         drawCutLine(region, i, "./tempFiles/recut");
         merge(region);
         drawCutLine(region, i, "./tempFiles/merge");
+        divideLangRegion(region, i);
         findTextlineType(region, i);
         findPatchType(region, i);
         findEnglishText(region, i);
         saveRegionToFile(region, i, "region.txt", tlIndex[i].first, tlIndex[i].second);
     }
-
-    pip->generateCleanImage();
 }
 
 int main(int argc, char** argv) {

@@ -14,6 +14,7 @@
 #include <vector>
 #include <fstream>
 #include <cstdio>
+#include <cmath>
 #include <sys/stat.h>
 using namespace std;
 
@@ -36,6 +37,9 @@ const float MIN_SIMILIRITY = 0.8;
 
 // 最小的若连通点的像素值，用于重切分
 const int MIN_CUT_PIXES = 4;
+
+// 平均误差H的上阈值
+const int MAX_H = 50;
 
 /*
  * 每一个Patch的类型定义
@@ -491,6 +495,184 @@ void merge(Region &region) {
 	// clear vector;
 	newPatches.swap(region.patches);
 }
+
+
+/*
+ * 从Region中找到每个Patch的中心坐标
+ */
+vector<int> getCentersForRegion(const Region &region) {
+    vector<int> centers;
+    int len = region.patches.size();
+    for (int i = 0; i < len; ++ i) {
+        Patch patch = region.patches[i];
+        centers.push_back((patch.end + patch.start) / 2);
+    }
+
+    cout << "centers size = " << centers.size() << endl;
+    /*
+    for (int i = 0; i < centers.size(); ++ i) {
+        cout << centers[i] << " ";
+    }
+    cout << endl << endl;
+    */
+
+    return centers;
+}
+
+/*
+ * 根据Patch的中心坐标，找到相邻Patch之间的间距
+ * 但是滤除了标点和与两边近似不等距的情况
+ */
+vector<int> getMarginsForRegion(const Region &region, vector<int> &centers) {
+    vector<int> margins;
+    int len = centers.size();
+    for (int i = 1; i < len-1; ++ i) {
+        Patch patch = region.patches[i];
+        // 去掉由小标点符号产生的数据
+        if ((patch.end - patch.start) < MIN_PATCH_WIDTH 
+            || (patch.bottom - patch.top) < MIN_PATCH_HEIGHT) {
+                continue;
+            }
+        // 不近似地等间距则略过
+        if (abs(centers[i] * 2 - centers[i-1] - centers[i+1]) > 4) {
+            continue;
+        }
+        // margin[i] 是 i 和 i-1 之间的距离
+        margins.push_back(centers[i] - centers[i-1]);
+    }
+
+    cout << "margins\tsize = " << margins.size() << endl;
+    for (int i = 0; i < margins.size(); ++ i) {
+        cout << margins[i] << " ";
+    }
+    cout << endl << endl;
+
+    return margins;
+}
+
+
+/*
+ * 根据旧的b的值，把margins分成两部分，返回两个b
+ * b1 >= b2 恒成立
+ */
+pair<int, int> divideMarginsForRegion(vector<int> &margins, int b) {
+    int sum1 = 0, sum2 = 0, count1 = 0, count2 = 0;
+    int len = margins.size();
+    for (int i = 0; i < len; ++ i) {
+        if (margins[i] > b) {
+            sum1 += margins[i];
+            count1 ++;
+        } else {
+            sum2 += margins[i];
+            count2 ++;
+        }
+    }
+    int b1 = 0, b2 = 0;
+    if (count1 != 0) { b1 = sum1 / count1; }
+    if (count1 != 0) { b2 = sum2 / count2; }
+
+    return make_pair(b1, b2);
+}
+
+int reCalcBforRegion(vector<int> &margins, int b) {
+    // 重新计算b
+    int len = margins.size();
+    int sum = 0, count = 0;
+    for (int i = 0; i < len; ++ i) {
+        int variance = (b - margins[i]) * (b - margins[i]); 
+        if (variance < MAX_H) {
+            sum += margins[i];
+            count ++;
+        }
+    }
+    int retb = b;
+    if (count != 0) {
+        retb = sum / count;
+    }
+    return retb;
+}
+
+/*
+ * 返回：
+ * 1. margins的平均值，即为b的值，即为我们拟合的文字平均宽度
+ * 2. 第二个b的值，若不存在，返回0
+ */
+pair<int, int> calcBforRegion(vector<int> &margins) {
+    // calc mean value (aka b) for margins
+    int sum = 0;
+    int len = margins.size();
+    if (len == 0) {
+        return make_pair(0, 0);
+    }
+    for (int i = 0; i < len; ++ i) {
+        sum += margins[i];
+    }
+    int b = sum / len;
+
+    // calc variance for margins
+    int variance = 0;
+    for (int i = 0; i < len; ++ i) {
+        variance += (b - margins[i]) * (b - margins[i]); 
+    }
+    variance = variance / len; 
+    
+    int b1 = b, b2 = 0;
+    if (variance > MAX_H) {
+        // 方差太大，数字波动太大，要有两条直线来拟合
+        pair<int, int> p = divideMarginsForRegion(margins, b);
+        b1 = p.first; b2 = p.second;
+    } else {
+        // 只有一个b
+        int b1 = reCalcBforRegion(margins, b);
+    }
+
+    return make_pair(b1, b2);
+}
+
+void printActuallyMargins(vector<int> centers) {
+    int len = centers.size();
+    cout << endl << "actually margins\tsize = " << len-1 << endl;
+    for (int i = 0; i < len-1; ++ i) {
+        cout << centers[i+1] - centers[i] << " ";
+    }
+    cout << endl << endl;
+}
+
+vector<int> doDivideLangRegion(Region &region, vector<int> centers, int b1, int b2) {
+    vector<int> regionType;
+    int len = region.patches.size();
+    cout << "len of region is " << len << endl;
+    for (int i = 0; i < len; ++ i) {
+        cout << "i = " << i << " \t-->\t";
+        if ( ((i != 0) && (abs(centers[i] - centers[i-1] - b1) <= 4))
+            || ((i != (len-1)) && (abs(centers[i+1] - centers[i] - b1) <= 4))) {
+                cout << "CHI" << endl;
+            }
+        else {
+            cout << "NO CHI" << endl;
+        }
+    }
+    return regionType;
+}
+
+/*
+ * 根据汉字的等间距性，进行中英文区域划分的算法
+ *      vector<int> centers 表示Patch的中心点的x坐标
+ *      vector<int> margins 表示相邻Patch之间的距离
+ */
+void divideLangRegion(Region &region, int index) {
+    cout << endl << "----------------------------" << endl;
+    cout << "index  = " << index << endl << endl;
+    vector<int> centers = getCentersForRegion(region);
+    vector<int> margins = getMarginsForRegion(region, centers);
+    pair<int, int> p = calcBforRegion(margins);
+    int b1 = p.first;
+    int b2 = p.second;
+    cout << "b1 = " << b1 << " b2 = " << b2 << endl;
+    printActuallyMargins(centers);
+    vector<int> regionType = doDivideLangRegion(region, centers, b1, b2);
+}
+
 
 /*
  * 查找整个文本行的属性，全是英文的要拿去Tesseract中识别，噪音要去掉
