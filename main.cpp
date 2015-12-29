@@ -23,7 +23,7 @@ void preprocessImage(char *filename) {
 	cv::Mat gray;
 	cvtColor(img, gray, CV_BGR2GRAY);
 
-	PreImageProcessor *pip = new PreImageProcessor(gray);
+	PreImageProcessor *pip = new PreImageProcessor(img);
 	pip->init();
     
     vector<cv::Mat> textLines = pip->getTextLines();
@@ -44,7 +44,7 @@ void preprocessImage(char *filename) {
         drawCutLine(region, i, "./tempFiles/recut");
         merge(region);
         drawCutLine(region, i, "./tempFiles/merge");
-        divideLangRegion(region, i);
+        //divideLangRegion(region, i);
         findTextlineType(region, i);
         findPatchType(region, i);
         findEnglishText(region, i);

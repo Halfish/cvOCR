@@ -10,8 +10,10 @@
 
 #include<opencv2/highgui/highgui.hpp>
 #include<opencv2/imgproc/imgproc.hpp>
+#include<opencv2/features2d/features2d.hpp>
 #include<iostream>
 #include<cstdio>
+#include<cmath>
 using namespace std;
 
 /*
@@ -20,7 +22,7 @@ using namespace std;
 class PreImageProcessor {
 
 public:
-	PreImageProcessor(cv::Mat mGrayImage);
+	PreImageProcessor(cv::Mat);
 	~PreImageProcessor();
 	void init();
     vector<cv::RotatedRect> getRotatedRects();
@@ -39,7 +41,8 @@ private:
 	cv::Mat morphologyProcess2(const cv::Mat &);
 	cv::Mat getROI(const cv::Mat &, cv::RotatedRect); 
 	vector<cv::RotatedRect> findRotatedRects(cv::Mat, int);
-    cv::Mat eliminateVerLine(); 
+    vector<cv::RotatedRect> findRotatedRectsWithMSER(cv::Mat); 
+    cv::Mat eliminateVerLine(cv::Mat); 
 	void rotatedRectsFilter(vector<cv::RotatedRect> &);
 	void reFindRotatedRects();
     void reArrangeRotatedRects();
@@ -48,7 +51,7 @@ private:
 	void translateRotatedRect(vector<cv::RotatedRect> &, cv::RotatedRect); 
 
 private:
-	static const int MAX_AREA = 2000;
+    static const int MIN_AREA = 1500;
 	static const int MODE_SHORT = 1;
 	static const int MODE_LONG = 2;
 
@@ -56,16 +59,18 @@ private:
 	vector<cv::Mat> mTextLines;
     vector<pair<int, int> > mTLIndex; // textLineIndex; (rowIndex, colIndex)
 	int mMeanImageHeight;
+    cv::Mat mImage;
 	cv::Mat mGrayImage;
 	cv::Mat mCleanImage;
 };
 
 
 /*
- * description: 构造函数，初始图片必须是灰度图
+ * description: 构造函数
  */
-PreImageProcessor::PreImageProcessor(cv::Mat gray) {
-	this->mGrayImage = gray;
+PreImageProcessor::PreImageProcessor(cv::Mat img) {
+    this->mImage = img;
+    cv::cvtColor(this->mImage, this->mGrayImage, CV_BGR2GRAY);
 }
 
 
@@ -73,36 +78,85 @@ PreImageProcessor::PreImageProcessor(cv::Mat gray) {
  * 全部预处理步骤
  */
 void PreImageProcessor::init() {
-	//mRotatedRects = findRotatedRects(eliminateVerLine(), MODE_LONG);
-	mRotatedRects = findRotatedRects(mGrayImage, MODE_LONG);
+	//mRotatedRects = findRotatedRects(mGrayImage, MODE_LONG);
+    cv::Mat gray;
+    cv::cvtColor(eliminateVerLine(mImage), gray, CV_BGR2GRAY);
+    mRotatedRects = findRotatedRectsWithMSER(gray);
 	calcMeanImageHeight();
-	reFindRotatedRects();
+	//reFindRotatedRects();
     reArrangeRotatedRects();
 	extractTextLines();
 	generateCleanImage();
 }
 
 /*
- * 去掉竖直的表格线，形态学方法，已没啥用，保留代码供参考
+ * 去掉竖直的表格线，形态学方法
+ * input: 原始图片
+ * output: 返回去掉了直线的图片
  */
-cv::Mat PreImageProcessor::eliminateVerLine() {
-    cv::Mat closing, erosion, blur, adaptive, erosion2, vertical, opening;
+ cv::Mat PreImageProcessor::eliminateVerLine(cv::Mat img) {
+    cv::Mat gray, opening, closing, blur, adaptive, erosion, closing2, opening2;
     cv::Mat element1, element2, element3, element4;
-	element1 = getStructuringElement(cv::MORPH_RECT, cv::Size(1, 100));
-	element2 = getStructuringElement(cv::MORPH_RECT, cv::Size(1, 3));
+	element1 = getStructuringElement(cv::MORPH_RECT, cv::Size(1, 15));
+	element2 = getStructuringElement(cv::MORPH_RECT, cv::Size(1, 100));
 	element3 = getStructuringElement(cv::MORPH_RECT, cv::Size(3, 1));
-	element4 = getStructuringElement(cv::MORPH_RECT, cv::Size(13, 1));
+	element4 = getStructuringElement(cv::MORPH_RECT, cv::Size(1, 30));
 
-    cv::morphologyEx(mGrayImage, closing, cv::MORPH_CLOSE, element1);
-    cv::erode(closing, erosion, element2, cv::Point(-1, -1), 1);
-	cv::GaussianBlur(erosion, blur, cv::Size(5, 5), 0, 0);
-    cv::adaptiveThreshold(blur, adaptive, 255, CV_ADAPTIVE_THRESH_GAUSSIAN_C, CV_THRESH_BINARY, 11, 15);
-    cv::erode(adaptive, erosion2, element3, cv::Point(-1, -1), 3);
+    // 形态学操作，筛选出直线
+    cv::cvtColor(img, gray, CV_BGR2GRAY);
+    cv::morphologyEx(gray, opening, cv::MORPH_OPEN, element1);
+    cv::morphologyEx(opening, closing, cv::MORPH_CLOSE, element2);
+	cv::GaussianBlur(closing, blur, cv::Size(5, 5), 0, 0);
+    cv::adaptiveThreshold(blur, adaptive, 255, CV_ADAPTIVE_THRESH_GAUSSIAN_C, CV_THRESH_BINARY, 11, 2);
+    cv::erode(adaptive, erosion, element3, cv::Point(-1, -1), 2);
+    cv::morphologyEx(erosion, closing2, cv::MORPH_CLOSE, element4);
+    cv::morphologyEx(closing2, opening2, cv::MORPH_OPEN, element4);
 
-    vertical = mGrayImage | ~erosion2;
-    cv::morphologyEx(vertical, opening, cv::MORPH_OPEN, element4);
-    //cv::imwrite("opening.png", opening);
-    return opening;
+    int height = gray.rows;
+    int width = gray.cols;
+    cv::Mat newImage(height, width, CV_8UC1, cv::Scalar(255));
+    cv::Rect rect(5, 5, width - 10, height - 10);
+    cv::Mat roiNewImage = newImage(rect);
+    cv::Mat roiClosing = opening2(rect);
+    roiClosing.copyTo(roiNewImage);
+
+    // 按照面积和形状，过滤掉不符合标准的直线
+    int totalArea = gray.cols * gray.rows;
+	vector<vector<cv::Point> > contours;
+	vector<vector<cv::Point> > contours2;
+	cv::findContours(newImage, contours, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE);
+	int len = contours.size();
+	for(int i = 0; i < len; ++ i) {
+		if (cv::contourArea(contours[i]) > totalArea / 5) {
+            continue;
+		}
+		cv::RotatedRect rRect = minAreaRect(cv::Mat(contours[i]));
+        if (rRect.angle < -45) {
+            int temp = rRect.size.height;
+            rRect.size.height = rRect.size.width;
+            rRect.size.width = temp;
+        }
+        if (rRect.size.width > 35 | rRect.size.height < 300) {
+            continue;
+        }
+        contours2.push_back(contours[i]);
+	}
+    cv::Mat mask(height, width, CV_8UC3, cv::Scalar(0, 0, 0));
+    len = contours2.size();
+    for (int i = 0; i < len; ++ i) {
+        cv::drawContours(mask, contours2, i, cv::Scalar(255, 255, 255), CV_FILLED);
+    }
+
+    // 生成去掉了直线的图片
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(30, 2));
+    cv::Mat closing3, img2, img3, img4;
+
+    img2 = img & ~mask;
+    cv::morphologyEx(img2, closing3, cv::MORPH_CLOSE, kernel);
+    img3 = closing3 & mask;
+    img4 = img2 | img3;
+
+    return img4;
 }
 
 
@@ -110,36 +164,46 @@ cv::Mat PreImageProcessor::eliminateVerLine() {
  * rotatedRects过滤器:
  *		1. 调整偏转角度（因为有些可能是负值，长宽需要对调）
  *		2. 增加矩形的边缘margin
- *		3. 筛选长宽比不正常的矩形
- *		4. 由于倾斜，可能会造成找到的矩形边框超过原图，
+ *		3. 由于倾斜，可能会造成找到的矩形边框超过原图，
  *		    所以有四个if来检测
+ *		4. 筛选长宽比不正常的矩形
  */
 void PreImageProcessor::rotatedRectsFilter(vector<cv::RotatedRect> &origin) {
 	vector<cv::RotatedRect> v;
 
 	int len = origin.size();
+    cout << len << " rotatedRects before filter" << endl;
 	for (int i = 0; i < len; ++ i) {
 		cv::RotatedRect rRect = origin[i];
+
+        if (rRect.center.x < 0 || rRect.center.y < 0) {
+            continue;
+        }
 
 		if(rRect.angle < -45) {
 			rRect.angle += 90;
 			swap(rRect.size.width, rRect.size.height);
 		}
-
-        if (rRect.center.x < rRect.size.width / 2) {
-            rRect.size.width = rRect.center.x * 2 - 30;
+        cv::Rect rect = rRect.boundingRect();
+        if (rect.x < 0) {
+            rRect.size.width = (rRect.center.x - rRect.size.height / 2 * sin(rRect.angle / 360)) / cos(rRect.angle / 360) - 15;
         }
-        if ((rRect.center.x + rRect.size.width / 2) > mGrayImage.cols) {
-            rRect.size.width = (mGrayImage.cols - rRect.center.x - 30) * 2; 
+        if ((rect.x + rect.width) >= mGrayImage.cols) {
+            rRect.size.width = (mGrayImage.cols - rRect.center.x - rRect.size.height / 2 * sin(rRect.angle / 360)) / cos(rRect.angle / 360) - 15;
         }
-        if (rRect.center.y < rRect.size.height / 2) {
-            rRect.size.height = rRect.center.y * 2 - 30;
+        if (rect.y < 0) {
+            rRect.size.height = (rRect.center.y - rRect.size.width / 2 * sin(rRect.angle / 360)) / cos(rRect.angle / 360) - 15;
         }
-        if ((rRect.center.y + rRect.size.height / 2) > mGrayImage.rows) {
-            rRect.size.height = (mGrayImage.rows - rRect.center.y - 30) * 2;
+        if ((rect.y + rect.height) >= mGrayImage.rows) {
+            rRect.size.height = (mGrayImage.rows - rRect.center.y - rRect.size.width / 2 * sin(rRect.angle / 360)) / cos(rRect.angle / 360) - 15;
         }
-
-		if(rRect.size.width > rRect.size.height * 3 / 2) {
+        if (rRect.size.width<= 0) {
+            rRect.size.width = 1;
+        }
+        if (rRect.size.height <= 0) {
+            rRect.size.height = 1;
+        }
+		if(rRect.size.width * 2 > rRect.size.height) {
 			v.push_back(rRect);			
 		}
 	}
@@ -212,16 +276,16 @@ cv::Mat PreImageProcessor::morphologyProcess2(const cv::Mat &gray) {
 /* description:	从灰度图中利用数学形态学的方法查找到文字行，
  *			返回一个带倾斜角的矩形
  *
- * input:	cv::Mat mGrayImage 灰度图
+ * input:	cv::Mat gray 灰度图
  * output:	vector<cv::RotatedRect> mRotatedRects 倾斜的矩形 
  */
-vector<cv::RotatedRect> PreImageProcessor::findRotatedRects(cv::Mat img, int mode) {
+vector<cv::RotatedRect> PreImageProcessor::findRotatedRects(cv::Mat gray, int mode) {
 	cv::Mat closing;
 	switch (mode) {
 		case MODE_LONG:
-			closing = morphologyProcess(img);	break;
+			closing = morphologyProcess(gray);	break;
 		case MODE_SHORT:
-			closing = morphologyProcess2(img);	break;
+			closing = morphologyProcess2(gray);	break;
 		default:	exit(1);
 	}
 
@@ -232,7 +296,7 @@ vector<cv::RotatedRect> PreImageProcessor::findRotatedRects(cv::Mat img, int mod
 	int len = contours.size();
 	for(int i = 0; i < len; ++ i) {
 		cv::RotatedRect rRect = minAreaRect(cv::Mat(contours[i]));
-		if (cv::contourArea(contours[i]) > MAX_AREA) {
+		if (cv::contourArea(contours[i]) > MIN_AREA) {
 			rotatedRects.push_back(rRect);
 		}
 	}
@@ -240,6 +304,71 @@ vector<cv::RotatedRect> PreImageProcessor::findRotatedRects(cv::Mat img, int mod
 	return rotatedRects;
 }
 
+
+/*
+ * description: 用 MSER(Maximally Stable Extremal Region)和 Morphology 结合的方法，提取文本行
+ * input:	cv::Mat gray 灰度图
+ * output:	vector<cv::RotatedRect> mRotatedRects 倾斜的矩形 
+ */
+vector<cv::RotatedRect> PreImageProcessor::findRotatedRectsWithMSER(cv::Mat gray) {
+    vector<cv::RotatedRect> rotatedRects;
+    vector<vector<cv::Point> > regions;
+    vector<vector<cv::Point> > regions2;
+    cv::Mat mask(gray.rows, gray.cols, CV_8UC1, cv::Scalar(0));  
+    vector<cv::Rect> rects;
+
+    cv::Ptr<cv::MSER> mser = cv::MSER::create(1, 20);
+    mser->detectRegions(gray, regions, rects);
+    cout << "find " << regions.size() << " contours!" << endl;
+
+    regions2.reserve(regions.size());
+    for (int i = 0; i < regions.size(); ++ i) {
+        float w = rects[i].width;
+        float h = rects[i].height;
+        //float ratio = w > h ? w / h : h / w;
+        if (w < 500 & h < 500) {
+            regions2.push_back(regions[i]);            
+        }
+    }
+    cout << "only " << regions2.size() << " contours left!" << endl;
+
+    cout << "drawing contours" << endl;
+
+    for (int i = 0; i < regions2.size(); ++ i) {
+        //cv::drawContours(mask, regions2, i, cv::Scalar(255), CV_FILLED, 8);
+        for (int j = 0; j < regions2[i].size(); ++ j) {
+            mask.at<uchar>(regions2[i][j]) = 255;
+        }
+    }
+    cv::imwrite("mask.jpg", mask);
+
+    cv::Mat kernel1 = getStructuringElement(cv::MORPH_RECT, cv::Size(5, 1));
+    cv::Mat kernel2 = getStructuringElement(cv::MORPH_RECT, cv::Size(50, 1));
+    cv::Mat dilation, closing;
+    cv::dilate(mask, dilation, kernel1, cv::Point(-1, -1), 2);
+    cv::morphologyEx(mask, closing, cv::MORPH_CLOSE, kernel2);
+
+    cv::imwrite("dilation.png", dilation);
+    cv::imwrite("closing.png", closing);
+    
+    vector<vector<cv::Point> > contours;
+    cv::findContours(closing, contours, cv::RETR_TREE, cv::CHAIN_APPROX_SIMPLE, cv::Point(0, 0));
+
+    cout << "find " << contours.size() << " textlines" << endl;
+
+    // filter
+    int totalArea = gray.cols * gray.rows;
+	for(int i = 0; i < contours.size(); ++ i) {
+		cv::RotatedRect rRect = minAreaRect(cv::Mat(contours[i]));
+        int area = cv::contourArea(contours[i]);
+		if (area > MIN_AREA && area < totalArea / 4) {
+			rotatedRects.push_back(rRect);
+		}
+	}
+	rotatedRectsFilter(rotatedRects);
+
+    return rotatedRects; 
+}
 
 /*
  * description: 计算所有小图片中的平均高度
@@ -329,12 +458,6 @@ void PreImageProcessor::reArrangeRotatedRects() {
     for (int i = 1; i < len; ++ i) {
         cv::RotatedRect rRect1 = mRotatedRects[i-1];
         cv::RotatedRect rRect2 = mRotatedRects[i];
-        //cout << "i = " << i << endl;
-        //cout << "\twidth = " << rRect.size.width << endl;
-        //cout << "\theight = " << rRect2.size.height << endl;
-        //cout << "\tx = " << rRect2.center.x << endl;
-        //cout << "\ty = " << rRect2.center.y << endl;
-        //cout << "\tangle = " << rRect.angle << endl;
         if ((rRect2.center.y - rRect1.center.y) < (rRect1.size.height + rRect2.size.height) / 6) {
             colIndex ++;
         } else {
@@ -373,13 +496,27 @@ void PreImageProcessor::reArrangeRotatedRects() {
  */
 void PreImageProcessor::extractTextLines() {
 	int len = mRotatedRects.size();
+    //cout << "len = " << len << endl;
 	for (int i = 0; i < len; ++ i) {
+        //cout << " i = " << i << endl;
 		cv::RotatedRect rotate = mRotatedRects[i];
 		cv::Rect rect = rotate.boundingRect();
 
+        /*
+        if (i == 80) {
+            cout << "rows and cols = " << endl;
+            cout << mGrayImage.rows << endl;
+            cout << mGrayImage.cols << endl;
+            cout << "rotate x, y, width, height" << endl;
+            cout << rotate.center.x << "\t" << rotate.center.y << "\t" << rotate.size.width << "\t" << rotate.size.height << endl;
+            cout << "rect" << endl;
+            cout << rect.x << "\t" << rect.y << "\t" << rect.width << "\t" << rect.height << endl;
+            cout << "angle = " << rotate.angle << endl;
+        }
+        */
+
 		cv::Point2f center(rect.width / 2, rect.height / 2);
 		float angle = rotate.angle;
-
 		cv::Mat roi = mGrayImage(rect);
 		cv::Mat matrix = cv::getRotationMatrix2D(center, angle, 1.0);
 		cv::Mat warp, crop, blur, adaptive;
@@ -429,7 +566,7 @@ void PreImageProcessor::generateCleanImage() {
 
 
 /*
- * description: 在原图上画出找到的带倾斜角度的矩形框，并把图片存下来
+ * description: 在原图上画出找到的"带倾斜角度"的矩形框，并把图片存下来
  */
 void PreImageProcessor::drawRectangles(cv::Mat src, const vector<cv::RotatedRect> &rotatedRects) {
 	cv::Mat img = src.clone();
