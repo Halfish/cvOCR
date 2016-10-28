@@ -235,7 +235,7 @@ void drawCutLine(const Region &region, int index, const char *dirname) {
 		if(whiteCount[i] == 0 && whiteCount[i+1] > 0) {
 			start = i+1;
 		}
-		if(whiteCount[i] > 0 && whiteCount[i+1] == 0) {
+		if((whiteCount[i] > 0 && whiteCount[i+1] == 0) || i == region.img.cols - 2) {
 			end = i+1;
 			if ((end - start) > 3) {
 				// make sure the width can not be zero
